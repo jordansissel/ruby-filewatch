@@ -1,5 +1,5 @@
-
 require "inotify/namespace"
+require "inotify/fd"
 require "ffi"
 
 class Inotify::Event < FFI::Struct
@@ -30,6 +30,13 @@ class Inotify::Event < FFI::Struct
     return event
   end
 
+  def actions
+    Inotify::FD::WATCH_BITS.reject do |key, bitmask| 
+      self[:mask] & bitmask == 0 
+    end.keys
+  end
+
   def to_s
+    return "#{self.name} (#{self.actions.join(", ")})"
   end
 end

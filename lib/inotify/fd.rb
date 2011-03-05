@@ -38,32 +38,65 @@ class Inotify::FD
 
   def initialize
     @watches = {}
-    #@fd = inotify_init
-    #@io = IO.for_fd(@fd)
+    @fd = inotify_init
+    @io = IO.for_fd(@fd)
   end
 
+  # Add a watch.
+  # - path is a string file path
+  # - what_to_watch is any of the valid WATCH_BITS keys
+  #
+  # Example:
+  #   watch("/tmp", :craete, :delete)
   def watch(path, *what_to_watch)
-    if !@watches.has_value?(path)
-      io = IO.for_fd(inotify_init)
-      @watches[io] = path
-    else
-      @watches.each do |watched_io, watched_path|
-        if watched_path == path
-          io = watched_io
-          break
-        end
-      end
-    end
+    #if !@watches.has_value?(path)
+      #fd = inotify_init
+      #if fd < 0
+        #raise "inotify_init failed (returned #{fd})"
+      #end
+      #io = IO.for_fd(fd)
+      #@watches[io] = path
+    ##else
+      #@watches.each do |watched_io, watched_path|
+        #if watched_path == path
+          ##io = watched_io
+          #break
+        ##end
+      #end
+    #end
 
     mask = what_to_watch.inject(0) { |m, val| m |= WATCH_BITS[val] }
-    return inotify_add_watch(io.fileno, path, mask)
+    watch_descriptor = inotify_add_watch(@fd, path, mask)
+
+    if watch_descriptor == -1
+      raise "inotify_add_watch(#{@fd}, #{path}, #{mask}) failed. #{$?}"
+    end
+    @watches[watch_descriptor] = path
   end
 
-  def read(&block)
-    ready = IO.select(@watches.keys, nil, nil, nil)
+  # Read an inotify event.
+  #
+  # If timeout is not given, this call blocks.
+  # If a timeout occurs and no event was read, nil is returned.
+  #
+  # If a code block is given, all available inotify events will
+  # be yielded to the block. Otherwise, we return one event.
+  def read(timeout=nil, &block)
+    ready = IO.select([@io], nil, nil, timeout)
+
+    return nil if ready == nil
 
     ready[0].each do |io|
       event = Inotify::Event.from_io(io)
+      watchpath = @watches[event[:wd]]
+      
+      if event.name == nil
+        # Some events don't have the name at all, so add our own.
+        event.name = watchpath
+      else
+        # Event paths are relative to the watch. Prefix to make the full path.
+        event.name = File.join(watchpath, event.name)
+      end
 
       if block_given?
         yield event
@@ -72,5 +105,7 @@ class Inotify::FD
         return event
       end
     end # ready[0].each
+
+    return nil
   end # def read
 end # class Inotify::FD
