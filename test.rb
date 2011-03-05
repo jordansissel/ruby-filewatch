@@ -30,15 +30,17 @@ while paths.size > 0
 
   Dir.entries(path).each do |childpath|
     next if [".", ".."].include?(childpath)
-    path = File.join(path, childpath)
-    next if path[/^\/dev/]
-    next if path[/^\/proc/]
-    next if File.symlink?(path)
-    if File.directory?(path)
-      paths << path
+    fullpath = File.join(path, childpath)
+    next if fullpath[/^\/dev/]
+    next if fullpath[/^\/proc/]
+    next if File.symlink?(fullpath)
+    if File.directory?(fullpath)
+      paths << fullpath
     end
   end
 end
+
+puts "Starting reads..."
 
 loop do
   fd.read do |event|
