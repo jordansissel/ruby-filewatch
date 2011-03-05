@@ -11,6 +11,10 @@ Goals:
   - to still be useful outside EM
   - to work in major rubies (mri, yarv, jruby, rubinius?)
 
+Maybe:
+  - generate dtrace and systemtap scripts for watching activities on certain
+    files/directories?
+
 Example tool:
 
 % ruby test.rb /var/log
