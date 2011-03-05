@@ -1,0 +1,22 @@
+Inotify with FFI 
+
+
+Example:
+
+% ruby test.rb /var/log
+Watching /var/log
+Watching /var/log/xen
+Watching /var/log/apparmor
+Watching /var/log/exim4
+Watching /var/log/ConsoleKit
+<< Lots of files being watched, output trimmed .... >>
+
+Starting reads...
+Sat Mar 05 00:32:15 -0800 2011: /var/log/mysql/error.log (modify)
+Sat Mar 05 00:32:16 -0800 2011: /var/log/mysql/error.log (modify)
+Sat Mar 05 00:32:17 -0800 2011: /var/log/syslog (modify)
+Sat Mar 05 00:32:17 -0800 2011: /var/log/user.log (modify)
+Sat Mar 05 00:32:17 -0800 2011: /var/log/messages (modify)
+Sat Mar 05 00:32:17 -0800 2011: /var/log/messages (access)
+Sat Mar 05 00:32:17 -0800 2011: /var/log/mysql/error.log (modify)
+
