@@ -51,6 +51,7 @@ class Inotify::FD
   def watch(path, *what_to_watch)
     mask = what_to_watch.inject(0) { |m, val| m |= WATCH_BITS[val] }
     watch_descriptor = inotify_add_watch(@fd, path, mask)
+    #puts "watch #{path} => #{watch_descriptor}"
 
     if watch_descriptor == -1
       raise "inotify_add_watch(#{@fd}, #{path}, #{mask}) failed. #{$?}"
