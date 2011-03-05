@@ -49,22 +49,6 @@ class Inotify::FD
   # Example:
   #   watch("/tmp", :craete, :delete)
   def watch(path, *what_to_watch)
-    #if !@watches.has_value?(path)
-      #fd = inotify_init
-      #if fd < 0
-        #raise "inotify_init failed (returned #{fd})"
-      #end
-      #io = IO.for_fd(fd)
-      #@watches[io] = path
-    ##else
-      #@watches.each do |watched_io, watched_path|
-        #if watched_path == path
-          ##io = watched_io
-          #break
-        ##end
-      #end
-    #end
-
     mask = what_to_watch.inject(0) { |m, val| m |= WATCH_BITS[val] }
     watch_descriptor = inotify_add_watch(@fd, path, mask)
 
@@ -106,6 +90,7 @@ class Inotify::FD
       end
     end # ready[0].each
 
+    # No event was read due to timeout
     return nil
   end # def read
 end # class Inotify::FD
