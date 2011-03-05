@@ -1,7 +1,17 @@
 Inotify with FFI 
 
+First version will only support inotify.
+Second major version should support kqueue (for file watching)
+  - and also fall back to file and directory polling when all else fails.
 
-Example:
+Goals:
+  - to provide a rubyish api to inotify
+  - to integrate with eventmachine, replace current EM::watch_file and support
+    directories and more.
+  - to still be useful outside EM
+  - to work in major rubies (mri, yarv, jruby, rubinius?)
+
+Example tool:
 
 % ruby test.rb /var/log
 Watching /var/log
