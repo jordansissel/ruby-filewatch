@@ -83,7 +83,8 @@ class Inotify::FD
     end
     @watches[watch_descriptor] = {
       :path => path,
-      :partial => nil
+      :partial => nil,
+      :is_directory => File.directory?(path),
     }
   end
 
@@ -127,13 +128,17 @@ class Inotify::FD
   # Make any necessary corrections to the event
   private
   def prepare(event)
-    watchpath = @watches[event[:wd]][:path]
+    watch = @watches[event[:wd]]
+    watchpath = watch[:path]
     if event.name == nil
       # Some events don't have the name at all, so add our own.
       event.name = watchpath
     else
-      # Event paths are relative to the watch. Prefix to make the full path.
-      event.name = File.join(watchpath, event.name)
+      # Event paths are relative to the watch, if a directory. Prefix to make
+      # the full path.
+      if watch[:is_directory]
+        event.name = File.join(watchpath, event.name)
+      end
     end
 
     return event
@@ -181,7 +186,7 @@ class Inotify::FD
     loop do
       event = get
       break if event == nil
-      yield prepare(event)
+      yield event
     end # loop
   end # def each
 
