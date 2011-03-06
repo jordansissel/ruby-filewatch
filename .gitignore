@@ -1,2 +1,4 @@
 .*.swp
+*.rbc
+core
 *.gem
