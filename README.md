@@ -1,9 +1,10 @@
-# Inotify with FFI 
+# filewatch 
 
-First version will only support inotify.
+This project aims to provide file watching under any circumstances.
 
-Second major version should support kqueue (for file watching)
-and also fall back to file and directory polling when all else fails.
+* inotify (works now)
+* kqueue (needs to be implemented)
+* stat polling (needs to be implemented)
 
 Goals:
 
