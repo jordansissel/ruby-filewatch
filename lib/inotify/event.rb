@@ -7,12 +7,10 @@ class Inotify::Event < FFI::Struct
          :mask, :uint32,
          :cookie, :uint32,
          :len, :uint32
-
-  # last piece is the name.
+  # last piece is the name, but don't hold it in the struct
          #:name, :string,
 
   attr_accessor :name
-  attr_accessor :original_pointer
 
   def initialize(pointer)
     if pointer.is_a?(String)
@@ -22,7 +20,7 @@ class Inotify::Event < FFI::Struct
     super(pointer)
   end
 
-  def self.from_io(io)
+  def self.from_stringpipeio(io)
     # This fails in ruby 1.9.2 because it literally calls read(2) with
     # 'self.size' as the byte size to read. This causes EINVAL 
     # from inotify, documented thusly in inotify(7):
@@ -38,28 +36,33 @@ class Inotify::Event < FFI::Struct
     # know and love.
 
     begin
-      data = io.read(self.size)
+      data = io.read(self.size, true)
     rescue Errno::EINVAL => e
       $stderr.puts "Read was too small? Confused."
       raise e
     end
+
+    return nil if data == nil
 
     pointer = FFI::MemoryPointer.from_string(data)
     event = self.new(pointer)
-    puts "name is #{event[:len]} bytes"
 
+    event.from_stringpipeio(io)
+    return event
+  end
+
+  def from_stringpipeio(io)
     begin
-      event.name = io.read(event[:len])
+      @name = io.read(self[:len], true)
     rescue Errno::EINVAL => e
       $stderr.puts "Read was too small? Confused."
       raise e
     end
+    return self if @name == nil
 
-    p event.name.size
-    p event.name
-    event.name = event.name.split("\0", 2).first
+    @name = @name.split("\0", 2).first
 
-    return event
+    return self
   end
 
   def actions
@@ -69,6 +72,10 @@ class Inotify::Event < FFI::Struct
   end
 
   def to_s
-    return "#{self.name} (#{self.actions.join(", ")})"
+    return "#{@name} (#{self.actions.join(", ")})"
   end
+
+  def partial?
+    return self[:len] > 0 && @name == nil
+  end # def partial?
 end

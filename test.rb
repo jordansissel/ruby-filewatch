@@ -43,7 +43,7 @@ end
 puts "Starting reads..."
 
 loop do
-  fd.read do |event|
+  fd.subscribe do |event|
     puts "#{Time.now}: #{event}"
     $stdout.flush
   end
