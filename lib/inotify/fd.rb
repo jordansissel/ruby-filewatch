@@ -47,6 +47,9 @@ class Inotify::FD
 
   attr_reader :fd
 
+  # Create a new Inotify::FD instance.
+  # This is the main interface you want to use for watching
+  # files, directories, etc.
   public
   def initialize
     @watches = {}
@@ -61,7 +64,8 @@ class Inotify::FD
     end
   end
 
-  public
+  # Are we using java?
+  private
   def java?
     return RUBY_PLATFORM == "java"
   end
@@ -70,8 +74,33 @@ class Inotify::FD
   # - path is a string file path
   # - what_to_watch is any of the valid WATCH_BITS keys
   #
+  # Possible values for what_to_watch:
+  #   (See also the inotify(7) manpage under 'inotify events'
+  #
+  #   :access   - file was accesssed (a read)
+  #   :attrib   - permissions, timestamps, link count, owner, etc changed
+  #   :close_nowrite  - a file not opened for writing was closed
+  #   :close_write    - a file opened for writing was closed
+  #   :create   - file/directory was created, only valid on watched directories
+  #   :delete   - file/directory was deleted, only valid on watched directories
+  #   :delete_self - a watched file or directory was deleted
+  #   :modify      - A watched file was modified
+  #   :moved_from  - A file was moved out of a watched directory
+  #   :moved_to    - A file was moved into a watched directory
+  #   :move_self   - A watched file/directory was moved
+  #   :open        - A file was opened
+  #   # Shortcuts
+  #   :close  - close_nowrite or close_write
+  #   :move   - move_self or moved_from or moved_to
+  #   :delete - delete or delete_self
+  #  
+  # (Some of the above data copied from the inotify(7) manpage, which comes from
+  #  the linux man-pages project. http://www.kernel.org/doc/man-pages/ )
+  #
   # Example:
-  #   watch("/tmp", :craete, :delete)
+  #   fd = Inotify::FD.new
+  #   fd.watch("/tmp", :create, :delete)
+  #   fd.watch("/var/log/messages", :modify)
   public
   def watch(path, *what_to_watch)
     mask = what_to_watch.inject(0) { |m, val| m |= WATCH_BITS[val] }
@@ -146,12 +175,14 @@ class Inotify::FD
 
   # Get one inotify event.
   #
+  # TIMEOUT NOT SUPPORTED YET;
+  #
   # If timeout is not given, this call blocks.
   # If a timeout occurs and no event was read, nil is returned.
   #
   # Returns nil on timeout or an Inotify::Event on success.
   public
-  def get(timeout=nil)
+  def get(timeout_not_supported_yet=nil)
     # This big 'loop' is to support pop { |event| ... } shipping each available event.
     # It's not very rubyish (we should probably use Enumerable and such.
     if java?
