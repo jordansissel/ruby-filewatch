@@ -1,7 +1,7 @@
 require "rubygems"
-require "inotify/namespace"
+require "filewatch/namespace"
 
-class Inotify::StringPipeIO
+class FileWatch::StringPipeIO
   def initialize
     @buffer = ""
   end # def initialize

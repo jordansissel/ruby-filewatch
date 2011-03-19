@@ -1,8 +1,8 @@
-require "inotify/namespace"
-require "inotify/fd"
+require "filewatch/namespace"
+require "filewatch/inotify/fd"
 require "ffi"
 
-class Inotify::Event < FFI::Struct
+class FileWatch::Inotify::Event < FFI::Struct
   layout :wd, :int,
          :mask, :uint32,
          :cookie, :uint32,
@@ -21,16 +21,17 @@ class Inotify::Event < FFI::Struct
   end
 
   def self.from_stringpipeio(io)
-    # This fails in ruby 1.9.2 because it literally calls read(2) with
-    # 'self.size' as the byte size to read. This causes EINVAL 
-    # from inotify, documented thusly in inotify(7):
+    # I implemented a 'string pipe' IO because normal "buffered" IO reads
+    # on inotify fds fails in ruby 1.9.2 because it literally calls read(2)
+    # with 'self.size' as the byte size to read. This causes EINVAL from
+    # inotify, documented thusly in inotify(7):
     # 
     # """ The  behavior  when  the buffer given to read(2) is too small to
     #     return information about the next event depends on the  kernel
     #     version:  in  kernels  before  2.6.21, read(2) returns 0; since
     #     kernel 2.6.21, read(2) fails with the error EINVAL. """
     #
-    # Working around this will require implementing our own read buffering
+    # Working around this requires implementing our own read buffering
     # unless comeone clues me in on how to make ruby 1.9.2 read larger
     # blocks and actually do the nice buffered IO we've all come to
     # know and love.
@@ -66,7 +67,7 @@ class Inotify::Event < FFI::Struct
   end
 
   def actions
-    Inotify::FD::WATCH_BITS.reject do |key, bitmask| 
+    ::FileWatch::Inotify::FD::WATCH_BITS.reject do |key, bitmask| 
       self[:mask] & bitmask == 0 
     end.keys
   end

@@ -1,7 +1,7 @@
-require "inotify/fd"
-require "inotify/namespace"
+require "filewatch/inotify/fd"
+require "filewatch/namespace"
 
-class Inotify::EMHandler < EventMachine::Connection
+class FileWatch::Inotify::EMHandler < EventMachine::Connection
   def initialize(inotify_fd, callback=nil)
     @inotify = inotify_fd
     @callback = callback

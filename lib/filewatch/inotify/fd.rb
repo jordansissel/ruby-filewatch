@@ -1,10 +1,10 @@
 require "rubygems"
 require "ffi"
-require "inotify/event"
-require "inotify/namespace"
-require "inotify/stringpipeio"
+require "filewatch/inotify/event"
+require "filewatch/namespace"
+require "filewatch/stringpipeio"
 
-class Inotify::FD
+class FileWatch::Inotify::FD
   include Enumerable
 
   module CInotify
@@ -47,13 +47,13 @@ class Inotify::FD
 
   attr_reader :fd
 
-  # Create a new Inotify::FD instance.
+  # Create a new FileWatch::Inotify::FD instance.
   # This is the main interface you want to use for watching
   # files, directories, etc.
   public
   def initialize
     @watches = {}
-    @buffer = Inotify::StringPipeIO.new
+    @buffer = FileWatch::StringPipeIO.new
 
     @fd = CInotify.inotify_init1(INOTIFY_NONBLOCK)
 
@@ -98,7 +98,7 @@ class Inotify::FD
   #  the linux man-pages project. http://www.kernel.org/doc/man-pages/ )
   #
   # Example:
-  #   fd = Inotify::FD.new
+  #   fd = FileWatch::Inotify::FD.new
   #   fd.watch("/tmp", :create, :delete)
   #   fd.watch("/var/log/messages", :modify)
   public
@@ -138,7 +138,7 @@ class Inotify::FD
     # TODO(sissel): Block with select.
     # Will have to use FFI to call select, too.
 
-    # We ahve to call libc's read(2) because JRuby/Java can't trivially
+    # We have to call libc's read(2) because JRuby/Java can't trivially
     # be told about existing file descriptors.
     loop do
       bytes = CInotify.read(@fd, @jruby_read_buffer, 4096)
@@ -180,7 +180,7 @@ class Inotify::FD
   # If timeout is not given, this call blocks.
   # If a timeout occurs and no event was read, nil is returned.
   #
-  # Returns nil on timeout or an Inotify::Event on success.
+  # Returns nil on timeout or an FileWatch::Inotify::Event on success.
   public
   def get(timeout_not_supported_yet=nil)
     # This big 'loop' is to support pop { |event| ... } shipping each available event.
@@ -195,7 +195,7 @@ class Inotify::FD
     if @partial
       event = @partial.from_stringpipeio(@buffer)
     else
-      event = Inotify::Event.from_stringpipeio(@buffer)
+      event = FileWatch::Inotify::Event.from_stringpipeio(@buffer)
       return nil if event == nil
     end
 
@@ -210,7 +210,7 @@ class Inotify::FD
 
   # For Enumerable support
   # 
-  # Yields one Inotify::Event per iteration. If there are no more events
+  # Yields one FileWatch::Inotify::Event per iteration. If there are no more events
   # at the this time, then this method will end.
   public
   def each(&block)
@@ -237,8 +237,8 @@ class Inotify::FD
   public
   def subscribe(handler=nil, &block)
     if defined?(EventMachine) && EventMachine.reactor_running?
-      require "inotify/emhandler"
-      handler = Inotify::EMHandler if handler == nil
+      require "filewatch/inotify/emhandler"
+      handler = FileWatch::Inotify::EMHandler if handler == nil
       EventMachine::watch(@fd, handler, self, block)
     else
       loop do
@@ -254,4 +254,4 @@ class Inotify::FD
       end
     end
   end
-end # class Inotify::FD
+end # class FileWatch::Inotify::FD
