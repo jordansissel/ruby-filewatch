@@ -6,7 +6,7 @@ Gem::Specification.new do |spec|
   end
 
   spec.name = "filewatch"
-  spec.version = "0.0.3"
+  spec.version = "0.1.1"
   spec.summary = "filewatch - file watching for ruby"
   spec.description = "Watch files and directories in ruby"
   spec.files = files
@@ -14,6 +14,6 @@ Gem::Specification.new do |spec|
 
   spec.author = "Jordan Sissel"
   spec.email = "jls@semicomplete.com"
-  spec.homepage = "https://github.com/jordansissel/ruby-inotify-ffi"
+  spec.homepage = "https://github.com/jordansissel/ruby-filewatch"
 end
 
