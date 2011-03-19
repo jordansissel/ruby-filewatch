@@ -21,29 +21,29 @@ Maybe:
 
 What works now:
 
-* inotify (linux) watches in MRI 1.8.7, YARV 1.9.2, JRuby 1.5.6 (1.6.0 probably, too)
+* inotify (linux) watches in MRI 1.8.7, YARV 1.9.2, JRuby 1.6.0
 
 Example code (standalone):
 
     require "rubygems"
-    require "inotify/fd"
+    require "filewatch/watch"
 
-    fd = Inotify::FD.new
-    fd.watch("/tmp", :create, :delete)
-    fd.subscribe do |event|
+    w = FileWatch::Watch.new
+    w.watch("/tmp", :create, :deletE)
+    w.subscribe do |event|
       puts event
     end
 
-Example in EventMachine:
+Example in EventMachine (no change; we are EM-aware):
 
     require "rubygems"
     require "eventmachine"
-    require "inotify/fd"
+    require "filewatch/watch"
 
     EventMachine.run do
-      fd = Inotify::FD.new
-      fd.watch("/tmp", :create, :delete)
-      fd.subscribe do |event|
+      w = FileWatch::Watch.new
+      w.watch("/tmp", :create, :deletE)
+      w.subscribe do |event|
         puts event
       end
     end

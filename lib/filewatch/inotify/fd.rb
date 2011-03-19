@@ -47,6 +47,11 @@ class FileWatch::Inotify::FD
 
   attr_reader :fd
 
+  public
+  def self.can_watch?(filestat)
+    # TODO(sissel): implement.
+  end # def self.can_watch?
+
   # Create a new FileWatch::Inotify::FD instance.
   # This is the main interface you want to use for watching
   # files, directories, etc.
@@ -181,14 +186,16 @@ class FileWatch::Inotify::FD
   # If a timeout occurs and no event was read, nil is returned.
   #
   # Returns nil on timeout or an FileWatch::Inotify::Event on success.
-  public
+  private
   def get(timeout_not_supported_yet=nil)
     # This big 'loop' is to support pop { |event| ... } shipping each available event.
     # It's not very rubyish (we should probably use Enumerable and such.
     if java?
-      jruby_read(timeout)
+      #jruby_read(timeout)
+      jruby_read
     else
-      normal_read(timeout)
+      #normal_read(timeout)
+      normal_read
     end
 
     # Recover any previous partial event.
