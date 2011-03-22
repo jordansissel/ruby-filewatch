@@ -1,5 +1,6 @@
 require "rubygems"
 require "ffi"
+require "fcntl"
 require "filewatch/inotify/event"
 require "filewatch/namespace"
 require "filewatch/stringpipeio"
@@ -12,7 +13,7 @@ class FileWatch::Inotify::FD
     ffi_lib FFI::Library::LIBC
 
     attach_function :inotify_init, [], :int
-    attach_function :inotify_init1, [:int], :int
+    attach_function :fcntl, [:int, :int, :long], :int
     attach_function :inotify_add_watch, [:int, :string, :uint32], :int
 
     # So we can read and poll inotify from jruby.
@@ -24,6 +25,9 @@ class FileWatch::Inotify::FD
 
   INOTIFY_CLOEXEC = 02000000
   INOTIFY_NONBLOCK = 04000
+  
+  F_SETFL = 4
+  O_NONBLOCK = 04000  
 
   WATCH_BITS = {
     :access => 1 << 0,
@@ -60,12 +64,18 @@ class FileWatch::Inotify::FD
     @watches = {}
     @buffer = FileWatch::StringPipeIO.new
 
-    @fd = CInotify.inotify_init1(INOTIFY_NONBLOCK)
+    #@fd = CInotify.inotify_init1(INOTIFY_NONBLOCK)
+    @fd = CInotify.inotify_init()
 
     if java?
       @io = nil
+      @rc = CInotify.fcntl(@fd, F_SETFL, O_NONBLOCK)
+      if @rc == -1
+        raise "fcntl(#{@fd}, F_SETFL, O_NONBLOCK) failed. #{$?}"
+      end
     else
       @io = IO.for_fd(@fd)
+      @io.fcntl(Fcntl::F_SETFL, Fcntl::O_NONBLOCK)
     end
   end
 
