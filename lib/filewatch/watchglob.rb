@@ -14,7 +14,7 @@ class FileWatch::WatchGlob
   end
 
   public
-  def watch(glob, *what_to_watch)
+  def watch(glob, *what_to_watch, &block)
     @globs << [glob, what_to_watch]
 
     watching = [] 
@@ -23,9 +23,13 @@ class FileWatch::WatchGlob
     paths.each do |path|
       begin
         next if watching.include?(path)
-          p "Watching #{path}"
+        puts "Watching #{path}"
         @watch.watch(path, :create, :delete, :modify)
         watching << path
+
+        # Yield each file found by glob to the block.
+        # This allows initialization on new files found at start.
+        yield path if block_given?
       rescue FileWatch::Exception => e
         $stderr.puts "Failed starting watch on #{path} - #{e}"
         errors << e

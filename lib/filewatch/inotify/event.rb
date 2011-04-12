@@ -57,7 +57,11 @@ class FileWatch::Inotify::Event < FFI::Struct
 
   def from_stringpipeio(io)
     begin
-      @name = io.read(self[:len], true)
+      if self[:len] > 0
+        @name = io.read(self[:len], true)
+      else
+        @name = nil
+      end
     rescue Errno::EINVAL => e
       $stderr.puts "Read was too small? Confused."
       raise e

@@ -30,6 +30,7 @@ class FileWatch::Tail
       if @files.include?(path)
         file = @files[path]
         event.actions.each do |action|
+          # call method 'file_action_<action>' like 'file_action_modify'
           method = "file_action_#{action}".to_sym
           if respond_to?(method)
             send(method, file, event, &block)
