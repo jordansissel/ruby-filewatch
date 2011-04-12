@@ -1,5 +1,6 @@
-require "filewatch/inotify/fd"
 require "filewatch/namespace"
+require "filewatch/inotify/fd"
+require "filewatch/exception"
 
 class FileWatch::Watch
   # This class exists to wrap inotify, kqueue, periodic polling, etc,

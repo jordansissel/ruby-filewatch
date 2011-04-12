@@ -12,6 +12,9 @@ class FileWatch::Inotify::Event < FFI::Struct
 
   attr_accessor :name
 
+  # Enum of :directory or :file
+  attr_accessor :type
+
   def initialize(pointer)
     if pointer.is_a?(String)
       pointer = FFI::MemoryPointer.from_string(pointer)
@@ -73,7 +76,7 @@ class FileWatch::Inotify::Event < FFI::Struct
   end
 
   def to_s
-    return "#{@name} (#{self.actions.join(", ")})"
+    return "#{@name} (#{self.actions.join(", ")}) [type=#{type}]"
   end
 
   def partial?

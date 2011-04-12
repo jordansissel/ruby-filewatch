@@ -4,6 +4,7 @@ require "fcntl"
 require "filewatch/inotify/event"
 require "filewatch/namespace"
 require "filewatch/stringpipeio"
+require "filewatch/exception"
 
 class FileWatch::Inotify::FD
   include Enumerable
@@ -71,7 +72,8 @@ class FileWatch::Inotify::FD
       @io = nil
       @rc = CInotify.fcntl(@fd, F_SETFL, O_NONBLOCK)
       if @rc == -1
-        raise "fcntl(#{@fd}, F_SETFL, O_NONBLOCK) failed. #{$?}"
+        raise FileWatch::Exception.new(
+          "fcntl(#{@fd}, F_SETFL, O_NONBLOCK) failed. #{$?}", @fd, nil)
       end
     else
       @io = IO.for_fd(@fd)
@@ -120,10 +122,10 @@ class FileWatch::Inotify::FD
   def watch(path, *what_to_watch)
     mask = what_to_watch.inject(0) { |m, val| m |= WATCH_BITS[val] }
     watch_descriptor = CInotify.inotify_add_watch(@fd, path, mask)
-    #puts "watch #{path} => #{watch_descriptor}"
 
     if watch_descriptor == -1
-      raise "inotify_add_watch(#{@fd}, #{path}, #{mask}) failed. #{$?}"
+      raise FileWatch::Exception.new(
+        "inotify_add_watch(#{@fd}, #{path}, #{mask}) failed. #{$?}", @fd, path)
     end
     @watches[watch_descriptor] = {
       :path => path,
@@ -177,11 +179,13 @@ class FileWatch::Inotify::FD
     if event.name == nil
       # Some events don't have the name at all, so add our own.
       event.name = watchpath
+      event.type = :file
     else
       # Event paths are relative to the watch, if a directory. Prefix to make
       # the full path.
       if watch[:is_directory]
         event.name = File.join(watchpath, event.name)
+        event.type = :directory
       end
     end
 
