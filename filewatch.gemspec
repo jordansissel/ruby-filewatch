@@ -6,7 +6,7 @@ Gem::Specification.new do |spec|
   end
 
   spec.name = "filewatch"
-  spec.version = "0.1.2"
+  spec.version = "0.2.0"
   spec.summary = "filewatch - file watching for ruby"
   spec.description = "Watch files and directories in ruby"
   spec.files = files

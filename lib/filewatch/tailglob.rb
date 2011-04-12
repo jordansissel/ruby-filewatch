@@ -10,18 +10,30 @@ class FileWatch::TailGlob
 
     # hash of string path => File
     @files = {}
+    @options = {}
 
     # hash of string path => action to take on EOF
     #@eof_actions = {}
   end # def initialize
 
+  # Watch a path glob.
+  #
+  # Options is a hash of:
+  #   :exclude => array of globs to ignore.
   public
-  def tail(path)
+  def tail(path, options)
     what_to_watch = [ :create, :modify, :delete ]
+
+    # Save glob options
+    @options[path] = options
+
     @watch.watch(path, *what_to_watch) do |path|
+      # Save per-path options
+      @options[path] = options
+     
       # for each file found by the glob, open it.
       follow_file(path, :end)
-    end
+    end # @watch.watch
   end # def watch
 
   private
@@ -29,6 +41,17 @@ class FileWatch::TailGlob
     # Don't follow things that aren't files.
     if !File.file?(path) 
       puts "Skipping follow on #{path}, File.file? == false"
+      return
+    end
+
+    options = @options[path] || {}
+    if options.include?(:exclude)
+      options[:exclude].each do |exclusion|
+        if File.fnmatch?(exclusion, path)
+          puts "Skipping #{path}, matches #{exclusion}"
+          return
+        end
+      end
     end
 
     close(path) if @files.include?(path)

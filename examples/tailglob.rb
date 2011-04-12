@@ -10,7 +10,11 @@ end
 b = BufferedTokenizer.new
 tail.subscribe do |path, data|
   b.extract(data).each do |line|
-    p path => line
+    if ARGV.size == 1
+      puts line
+    else
+      puts "#{path}: #{line}"
+    end
   end
 end
 
