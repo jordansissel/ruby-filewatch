@@ -1,5 +1,25 @@
 # filewatch 
 
+## Getting Started
+
+* gem install filewatch
+* gtail -x '*.gz' '/var/log/*'
+
+For developers, see FileWatch::Watch, FileWatch::Tail, FileWatch::WatchGlob,
+and FileWatch::WatchTail
+
+Supported platforms:
+
+* JRuby
+* MRI (without EventMachine)
+* EventMachine/MRI
+
+Supported OSs:
+
+* Any Linux kernel with 'inotify' support
+
+## Overview
+
 This project aims to provide file watching under any circumstances.
 
 * inotify (works now)
