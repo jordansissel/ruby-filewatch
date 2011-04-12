@@ -107,23 +107,6 @@ class FileWatch::TailGlob
     end
   end # def follow_file
 
-  public
-  def subscribe(handler=nil, &block)
-    # TODO(sissel): Add handler support.
-    @watch.subscribe do |event|
-      path = event.name
-
-      event.actions.each do |action|
-        method = "file_action_#{action}".to_sym
-        if respond_to?(method)
-          send(method, path, event, &block)
-        else
-          $stderr.puts "Unsupported method #{self.class.name}##{method}"
-        end
-      end
-    end # @watch.subscribe
-  end # def subscribe
-
   protected
   def reopen(path)
     close(path)
