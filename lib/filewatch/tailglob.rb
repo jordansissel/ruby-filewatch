@@ -48,7 +48,7 @@ class FileWatch::TailGlob
     if options.include?(:exclude)
       options[:exclude].each do |exclusion|
         if File.fnmatch?(exclusion, path)
-          puts "Skipping #{path}, matches #{exclusion}"
+          puts "Skipping #{path.inspect}, matches exclusion #{exclusion.inspect}"
           return
         end
       end
