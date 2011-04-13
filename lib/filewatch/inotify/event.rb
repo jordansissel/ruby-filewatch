@@ -1,6 +1,7 @@
-require "filewatch/namespace"
-require "filewatch/inotify/fd"
 require "ffi"
+require "filewatch/inotify/fd"
+require "filewatch/namespace"
+require "filewatch/rubyfixes"
 
 class FileWatch::Inotify::Event < FFI::Struct
   layout :wd, :int,

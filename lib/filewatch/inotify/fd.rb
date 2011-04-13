@@ -1,10 +1,11 @@
 require "rubygems"
 require "ffi"
 require "fcntl"
+require "filewatch/exception"
 require "filewatch/inotify/event"
 require "filewatch/namespace"
+require "filewatch/rubyfixes"
 require "filewatch/stringpipeio"
-require "filewatch/exception"
 
 class FileWatch::Inotify::FD
   include Enumerable
