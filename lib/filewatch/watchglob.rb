@@ -3,6 +3,8 @@ require "filewatch/exception"
 require "filewatch/watch"
 
 class FileWatch::WatchGlob
+  attr_accessor :logger
+
   # This class exists to wrap inotify, kqueue, periodic polling, etc,
   # to provide you with a way to watch files and directories.
   #
@@ -11,6 +13,7 @@ class FileWatch::WatchGlob
     @watch = FileWatch::Watch.new
     @globdirs = []
     @globs = []
+    @logger = Logger.new(STDERR)
   end
 
   public
@@ -23,7 +26,7 @@ class FileWatch::WatchGlob
     paths.each do |path|
       begin
         next if watching.include?(path)
-        puts "Watching #{path}"
+        @logger.info("Watching #{path}")
         @watch.watch(path, :create, :delete, :modify)
         watching << path
 
@@ -31,7 +34,7 @@ class FileWatch::WatchGlob
         # This allows initialization on new files found at start.
         yield path if block_given?
       rescue FileWatch::Exception => e
-        $stderr.puts "Failed starting watch on #{path} - #{e}"
+        @logger.info("Failed starting watch on #{path} - #{e}")
         errors << e
       end
     end
@@ -47,12 +50,12 @@ class FileWatch::WatchGlob
         globprefix = File.join(splitpath[0 ... i])
         Dir.glob(globprefix).each do |path|
           next if watching.include?(path)
-          p "Watching dir #{path}"
+          @logger.info("Watching dir: #{path.inspect}")
           @watch.watch(path, :create)
           @globdirs << path
-        end
-      end
-    end
+        end # Dir.glob
+      end # if part.include?("*")
+    end # splitpath.each_with_index
   end # def watch
 
   # TODO(sissel): implement 'unwatch' or cancel?

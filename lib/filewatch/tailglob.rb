@@ -1,8 +1,10 @@
 require "filewatch/namespace"
 require "filewatch/exception"
 require "filewatch/watchglob"
+require "logger"
 
 class FileWatch::TailGlob
+  attr_accessor :logger
 
   public
   def initialize
@@ -10,26 +12,41 @@ class FileWatch::TailGlob
 
     # hash of string path => File
     @files = {}
+    @globoptions = {}
     @options = {}
 
+    self.logger = Logger.new(STDERR)
     # hash of string path => action to take on EOF
-    #@eof_actions = {}
   end # def initialize
+
+  def logger=(logger)
+    @logger = logger
+    @watch.logger = logger
+  end
 
   # Watch a path glob.
   #
   # Options is a hash of:
   #   :exclude => array of globs to ignore.
   public
-  def tail(path, options)
+  def tail(glob, options={}, &block)
     what_to_watch = [ :create, :modify, :delete ]
 
-    # Save glob options
-    @options[path] = options
-
-    @watch.watch(path, *what_to_watch) do |path|
-      # Save per-path options
+    # Setup a callback specific to tihs tail call for handling
+    # new files found; so we can attach options to each new file.
+    callback_set_options = lambda do |path| 
       @options[path] = options
+    end
+
+    # Save glob options
+    @globoptions[glob] = options
+
+    # callbacks can be an array of functions to call.
+    @globoptions[glob][:new_follow_callback] = [ callback_set_options, block ]
+
+    @watch.watch(glob, *what_to_watch) do |path|
+      # Save per-path options
+       callback_set_options.call(path)
      
       # for each file found by the glob, open it.
       follow_file(path, :end)
@@ -40,7 +57,7 @@ class FileWatch::TailGlob
   def follow_file(path, seek=:end)
     # Don't follow things that aren't files.
     if !File.file?(path) 
-      puts "Skipping follow on #{path}, File.file? == false"
+      @logger.info "Skipping follow on #{path}, File.file? == false"
       return
     end
 
@@ -48,9 +65,16 @@ class FileWatch::TailGlob
     if options.include?(:exclude)
       options[:exclude].each do |exclusion|
         if File.fnmatch?(exclusion, path)
-          puts "Skipping #{path.inspect}, matches exclusion #{exclusion.inspect}"
+          @logger.info "Skipping #{path.inspect}, matches exclusion #{exclusion.inspect}"
           return
         end
+      end
+    end
+
+    if options.include?(:new_follow_callback)
+      options[:new_follow_callback].each do |callback|
+        #puts "Callback: #{callback.inspect}"
+        callback.call(path)
       end
     end
 
@@ -89,23 +113,25 @@ class FileWatch::TailGlob
 
   protected
   def file_action_modify(path, event, &block)
+    file = @files[path]
+    # Check if this path is in the exclude list.
+    # TODO(sissel): Is this check sufficient?
+    if file.nil?
+      @logger.info "Ignoring modify on '#{path}' - it's probably ignored'"
+      break
+    end
+
+    # Read until EOF, emitting each chunk read.
     loop do
-      file = @files[path]
       begin
         data = file.sysread(4096)
         yield event.name, data
       rescue EOFError
         check_for_truncation_or_deletion(path, event, &block)
-        #case @eof_actions[path]
-          #when :reopen
-            #puts "Reopening #{path} due to eof and new file"
-            #reopen(path)
-        #end
-
         break
       end
-    end
-  end
+    end # loop
+  end # def file_action_modify
 
   protected
   def check_for_truncation_or_deletion(path, event, &block)
