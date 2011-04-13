@@ -118,7 +118,7 @@ class FileWatch::TailGlob
     # TODO(sissel): Is this check sufficient?
     if file.nil?
       @logger.info "Ignoring modify on '#{path}' - it's probably ignored'"
-      break
+      return
     end
 
     # Read until EOF, emitting each chunk read.
