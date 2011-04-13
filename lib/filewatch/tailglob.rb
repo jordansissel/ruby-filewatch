@@ -42,7 +42,9 @@ class FileWatch::TailGlob
     @globoptions[glob] = options
 
     # callbacks can be an array of functions to call.
-    @globoptions[glob][:new_follow_callback] = [ callback_set_options, block ]
+    callbacks = [ callback_set_options ]
+    callbacks << block if block_given?
+    @globoptions[glob][:new_follow_callback] = callbacks
 
     @watch.watch(glob, *what_to_watch) do |path|
       # Save per-path options
