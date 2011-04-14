@@ -80,7 +80,7 @@ class FileWatch::TailGlob
       end
     end
 
-    close(path) if @files.include?(path)
+    close(path) if following?(path)
     @files[path] = File.new(path, "r")
     
     # TODO(sissel): Support 'since'-like support.
@@ -167,7 +167,7 @@ class FileWatch::TailGlob
 
   protected
   def close(path)
-    if @files.include?(path)
+    if following?(path)
       p :CLOSE => path if $DEBUG
       @files[path].close rescue nil
       @files.delete(path)
@@ -211,21 +211,30 @@ class FileWatch::TailGlob
   end
 
   # Directory event; file in this dir was renamed.
+  protected
   def file_action_moved_to(path, event, &block)
     # TODO(sissel): ignore, maybe call close for good measure?
   end
 
+  protected
   def file_action_moved_from(path, event, &block)
     # ignore
-  end
+  end # def file_action_moved_from
 
+  protected
   def file_action_move(path, event, &block)
     # ignore
-  end
+  end # def file_action_move
 
+  protected
   def file_action_move(path, event, &block)
     # ignore
-  end
+  end # def file_action_move
+
+  protected
+  def file_action_delete(path, event, &block)
+    # ignore
+  end # def file_action_delete
 
   # Returns true if we are currently following the file at the given path.
   public
