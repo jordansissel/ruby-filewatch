@@ -10,8 +10,17 @@ class FileWatch::Inotify::Event < FFI::Struct
          :len, :uint32
   # last piece is the name, but don't hold it in the struct
          #:name, :string,
+  
+  # helper accessors
+  def wd; return self[:wd]; end
+  def mask; return self[:mask]; end
+  def cookie; return self[:cookie]; end
+  def len; return self[:len]; end
 
   attr_accessor :name
+
+  # This attribute is only set for file renames
+  attr_accessor :old_name
 
   # Enum of :directory or :file
   attr_accessor :type
@@ -75,6 +84,8 @@ class FileWatch::Inotify::Event < FFI::Struct
   end
 
   def actions
+    # TODO(sissel): Skip these? 
+    # [WATCH_BITS[:move], WATCH_BITS[:delete], WATCH_BITS[:close]].keys
     ::FileWatch::Inotify::FD::WATCH_BITS.reject do |key, bitmask| 
       self[:mask] & bitmask == 0 
     end.keys
