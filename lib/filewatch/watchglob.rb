@@ -27,7 +27,7 @@ class FileWatch::WatchGlob
       begin
         next if watching.include?(path)
         @logger.info("Watching #{path}")
-        @watch.watch(path, :create, :delete, :modify)
+        @watch.watch(path, :create, :delete, :modify, *what_to_watch)
         watching << path
 
         # Yield each file found by glob to the block.

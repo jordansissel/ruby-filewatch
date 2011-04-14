@@ -30,7 +30,7 @@ class FileWatch::TailGlob
   #   :exclude => array of globs to ignore.
   public
   def tail(glob, options={}, &block)
-    what_to_watch = [ :create, :modify, :delete_self, :move ]
+    what_to_watch = [ :create, :modify, :delete_self, :move_self ]
 
     # Setup a callback specific to tihs tail call for handling
     # new files found; so we can attach options to each new file.
@@ -102,13 +102,13 @@ class FileWatch::TailGlob
     @watch.subscribe do |event|
       path = event.name
 
+      p path => event.actions if $DEBUG
       event.actions.each do |action|
-        p path => action
         method = "file_action_#{action}".to_sym
         if respond_to?(method)
           send(method, path, event, &block)
         else
-          #$stderr.puts "Unsupported method #{self.class.name}##{method}"
+          $stderr.puts "Unsupported method #{self.class.name}##{method}"
         end
       end
     end # @watch.subscribe
@@ -167,8 +167,11 @@ class FileWatch::TailGlob
 
   protected
   def close(path)
-    @files[path].close rescue nil
-    @files.delete(path)
+    if @files.include?(path)
+      p :CLOSE => path if $DEBUG
+      @files[path].close rescue nil
+      @files.delete(path)
+    end
     return nil
   end # def close
 
@@ -194,25 +197,34 @@ class FileWatch::TailGlob
     end
   end # def file_action_create
 
-  #def file_action_delete(path, event, &block)
-    #close(path)
-    # ignore
-  #end
-
+  # This method is invoked when a file we are tailing is deleted.
+  protected
   def file_action_delete_self(path, event, &block)
-    # File was deleted. Close out.
     close(path)
-  end
+  end # def file_action_delete_self
 
+  # This method is invoked when a file we are tailing is moved.
   def file_action_move_self(path, event, &block)
-    # Ignore
-  end
-
-  # Directory event; file was renamed.
-  def file_action_moved_to(path, event, &block)
     # File renames are assumed to be rotations, so we close.
     # if this file is not open, this close has no effect.
     close(event.old_name)
+  end
+
+  # Directory event; file in this dir was renamed.
+  def file_action_moved_to(path, event, &block)
+    # TODO(sissel): ignore, maybe call close for good measure?
+  end
+
+  def file_action_moved_from(path, event, &block)
+    # ignore
+  end
+
+  def file_action_move(path, event, &block)
+    # ignore
+  end
+
+  def file_action_move(path, event, &block)
+    # ignore
   end
 
   # Returns true if we are currently following the file at the given path.

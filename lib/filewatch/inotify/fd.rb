@@ -128,7 +128,7 @@ class FileWatch::Inotify::FD
   #   fd.watch("/var/log/messages", :modify)
   public
   def watch(path, *what_to_watch)
-    mask = what_to_watch.inject(0) { |m, val| m |= WATCH_BITS[val] }
+    mask = what_to_watch.uniq.inject(0) { |m, val| m |= WATCH_BITS[val] }
     watch_descriptor = CInotify.inotify_add_watch(@fd, path, mask)
 
     if watch_descriptor == -1

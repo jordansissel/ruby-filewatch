@@ -85,9 +85,9 @@ class FileWatch::Inotify::Event < FFI::Struct
 
   def actions
     # TODO(sissel): Skip these? 
-    # [WATCH_BITS[:move], WATCH_BITS[:delete], WATCH_BITS[:close]].keys
     ::FileWatch::Inotify::FD::WATCH_BITS.reject do |key, bitmask| 
-      self[:mask] & bitmask == 0 
+      #p key => [self.mask, bitmask] if  self.mask & bitmask != 0 
+      self.mask & bitmask == 0 
     end.keys
   end
 
