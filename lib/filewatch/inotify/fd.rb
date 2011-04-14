@@ -44,18 +44,20 @@ class FileWatch::Inotify::FD
     :delete => 1 << 9,
     :delete_self => 1 << 10,
     :move_self => 1 << 11,
+  }
 
     # Shortcuts
-    :close => (1 << 3) | (1 << 4),
-    :move => (1 << 6) | (1 << 7) | (1 << 11),
-    :delete => (1 << 9) | (1 << 10),
-  }
+  WATCH_BITS[:close] = WATCH_BITS[:close_write] | WATCH_BITS[:close_nowrite]
+  WATCH_BITS[:move] = WATCH_BITS[:moved_from] \
+                      | WATCH_BITS[:moved_to] | WATCH_BITS[:move_self]
+  WATCH_BITS[:delete] = WATCH_BITS[:delete] | WATCH_BITS[:delete_self]
 
   attr_reader :fd
 
   public
   def self.can_watch?(filestat)
     # TODO(sissel): implement.
+    return true
   end # def self.can_watch?
 
   # Create a new FileWatch::Inotify::FD instance.
@@ -66,8 +68,13 @@ class FileWatch::Inotify::FD
     @watches = {}
     @buffer = FileWatch::StringPipeIO.new
 
-    #@fd = CInotify.inotify_init1(INOTIFY_NONBLOCK)
+    # Can't use inotify_init1 since older kernels don't have it.
+    # Implement nonblock ourselves.
     @fd = CInotify.inotify_init()
+
+    # Track movement cookies # since 'moved_from' and 'moved_to' are separate
+    # events.
+    @movement = {}
 
     if java?
       @io = nil
@@ -128,12 +135,16 @@ class FileWatch::Inotify::FD
       raise FileWatch::Exception.new(
         "inotify_add_watch(#{@fd}, #{path}, #{mask}) failed. #{$?}", @fd, path)
     end
+
     @watches[watch_descriptor] = {
       :path => path,
       :partial => nil,
       :is_directory => File.directory?(path),
     }
-  end
+    return watch_descriptor
+  end # def watch
+
+  # TODO(sissel): Implement inotify_rm_watch as 'cancel'
 
   private
   def normal_read(timeout=nil)
@@ -151,6 +162,7 @@ class FileWatch::Inotify::FD
 
   private
   def jruby_read(timeout=nil)
+    # TODO(sissel): instantiate this once to prevent extra memory usage? safe?
     @jruby_read_buffer = FFI::MemoryPointer.new(:char, 4096)
 
     # TODO(sissel): Block with select.
@@ -162,9 +174,13 @@ class FileWatch::Inotify::FD
       bytes = CInotify.read(@fd, @jruby_read_buffer, 4096)
 
       # read(2) returns -1 on error, which we expect to be EAGAIN, but...
-      # TODO(sissel): maybe we should check errno properly...
-      # Then again, errno isn't threadsafe, so we'd have to wrap this
-      # in a critical block? Fun times
+      # TODO(sissel): maybe we should check errno properly...  Then again,
+      # errno is supposedly thread-safe, but I believe that is in reference to
+      # pthreads. Ruby's green threads, fibers, etc, are not likely subject to
+      # the same safeties, so we have to assume errno is effed.
+      # This code is run in jruby only, so maybe we can guarantee that
+      # a thread is a pthread and has errno safety. Which leads us to the next
+      # question - how to access errno from jruby/ffi?
       break if bytes == -1
 
       @buffer.write(@jruby_read_buffer.get_bytes(0, bytes))
@@ -176,16 +192,19 @@ class FileWatch::Inotify::FD
   private
   def prepare(event)
     watch = @watches[event[:wd]]
-    watchpath = watch[:path]
+
     if event.name == nil
-      # Some events don't have the name at all, so add our own.
-      event.name = watchpath
+      # Some events don't have the name at all, so add what we know.
+      # This usually occurs on events for files where inotify expects us to
+      # track the file name anyway.
+      event.name = watch[:path]
       event.type = :file
     else
-      # Event paths are relative to the watch, if a directory. Prefix to make
-      # the full path.
+      # In cases where we have event names, they are always(?) directory events
+      # and contain the name of the file changed.  Event paths are relative to
+      # the watch, if a directory. Prefix to make the full path.
       if watch[:is_directory]
-        event.name = File.join(watchpath, event.name)
+        event.name = File.join(watch[:path], event.name)
         event.type = :directory
       end
     end
@@ -239,6 +258,27 @@ class FileWatch::Inotify::FD
     loop do
       event = get
       break if event == nil
+
+      # inotify claims to guarantee order of events, so we should always see
+      # 'moved_from' events before 'moved_to'
+      if event.actions.include?(:moved_from)
+        @movement[event.cookie] = event.name
+      end
+
+      if event.actions.include?(:moved_to) and @movement.include?(event.cookie)
+        event.old_name = @movement[event.cookie]
+        @movement.delete(event.cookie)
+
+        # If we are watching this file, update the path with the new filename
+        @watches.each do |wd, watch|
+          if watch[:path] == event.old_name
+            watch[:old_path] = watch[:path]
+            watch[:path] = event.name
+          end
+        end # @watches.each
+      end # if event.actions.include? :moved_to
+
+      # We're dong mangling the event. Ship it.
       yield event
     end # loop
   end # def each

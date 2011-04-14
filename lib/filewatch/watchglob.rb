@@ -51,7 +51,7 @@ class FileWatch::WatchGlob
         Dir.glob(globprefix).each do |path|
           next if watching.include?(path)
           @logger.info("Watching dir: #{path.inspect}")
-          @watch.watch(path, :create)
+          @watch.watch(path, :create, :moved_to, :moved_from)
           @globdirs << path
         end # Dir.glob
       end # if part.include?("*")
@@ -64,7 +64,8 @@ class FileWatch::WatchGlob
     @watch.subscribe do |event|
       # If this event is a directory event and the file matches a watched glob,
       # then it should be a new-file creation event. Watch the file.
-      if event.type == :directory and @globdirs.include?(File.dirname(event.name))
+      if event.type == :directory and event.actions.include?(:create) \
+        and @globdirs.include?(File.dirname(event.name))
         glob, what = @globs.find { |glob, what| File.fnmatch?(glob, event.name) }
         if glob
           @watch.watch(event.name, *what)

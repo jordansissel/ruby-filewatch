@@ -13,7 +13,7 @@ class FileWatch::Watch
 
   public
   def watch(path, *what_to_watch)
-    @inotify.watch(path, *what_to_watch)
+    return @inotify.watch(path, *what_to_watch)
   end # def watch
 
   def subscribe(handler=nil, &block)
