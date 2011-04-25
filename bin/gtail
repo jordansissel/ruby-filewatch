@@ -43,6 +43,7 @@ def main(args)
       else
         puts line
       end
+      $stdout.flush
     end # buffer.extract
   end # tail.subscribe
 end # def main
