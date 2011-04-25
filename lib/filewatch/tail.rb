@@ -48,6 +48,7 @@ class FileWatch::Tail
     loop do
       begin
         data = file.sysread(4096)
+        event.metadata[:position] = file.pos
         yield event.name, data
       rescue EOFError
         break

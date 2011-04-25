@@ -15,12 +15,16 @@ class FileWatch::Inotify::Event < FFI::Struct
   # Enum of :directory or :file
   attr_accessor :type
 
+  # Random metadata that you can add if you want.
+  attr_accessor :metadata
+
   def initialize(pointer)
     if pointer.is_a?(String)
       pointer = FFI::MemoryPointer.from_string(pointer)
     end
 
     super(pointer)
+    @metadata = {}
   end
 
   def self.from_stringpipeio(io)
