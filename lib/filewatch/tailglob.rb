@@ -30,7 +30,7 @@ class FileWatch::TailGlob
   #   :exclude => array of globs to ignore.
   public
   def tail(glob, options={}, &block)
-    what_to_watch = [ :create, :modify, :delete ]
+    what_to_watch = [ :create, :modify, :delete_self, :move_self ]
 
     # Setup a callback specific to tihs tail call for handling
     # new files found; so we can attach options to each new file.
@@ -80,7 +80,7 @@ class FileWatch::TailGlob
       end
     end
 
-    close(path) if @files.include?(path)
+    close(path) if following?(path)
     @files[path] = File.new(path, "r")
     
     # TODO(sissel): Support 'since'-like support.
@@ -102,6 +102,7 @@ class FileWatch::TailGlob
     @watch.subscribe do |event|
       path = event.name
 
+      p path => event.actions if $DEBUG
       event.actions.each do |action|
         method = "file_action_#{action}".to_sym
         if respond_to?(method)
@@ -166,10 +167,13 @@ class FileWatch::TailGlob
 
   protected
   def close(path)
-    @files[path].close rescue nil
-    @files.delete(path)
+    if following?(path)
+      p :CLOSE => path if $DEBUG
+      @files[path].close rescue nil
+      @files.delete(path)
+    end
     return nil
-  end
+  end # def close
 
   protected
   def file_action_create(path, event, &block)
@@ -184,23 +188,53 @@ class FileWatch::TailGlob
       #@eof_actions[path] = :reopen
     else
       # If we are not yet watching this file, watch it.
-      follow_file(path, :beginning)
-
-      # Then read all of the data so far since this is a new file.
-      file_action_modify(path, event, &block)
+      # Make sure this file matches a known glob
+      if @globoptions.find { |glob, opts| File.fnmatch?(glob, path) }
+        follow_file(path, :beginning)
+        # Then read all of the data so far since this is a new file.
+        file_action_modify(path, event, &block)
+      end
     end
   end # def file_action_create
 
-  def file_action_delete(path, event, &block)
-    close(path)
-    # ignore
-  end
-
+  # This method is invoked when a file we are tailing is deleted.
+  protected
   def file_action_delete_self(path, event, &block)
     close(path)
-    # ignore
-    #p :delete_self => path
+  end # def file_action_delete_self
+
+  # This method is invoked when a file we are tailing is moved.
+  def file_action_move_self(path, event, &block)
+    # File renames are assumed to be rotations, so we close.
+    # if this file is not open, this close has no effect.
+    close(event.old_name)
   end
+
+  # Directory event; file in this dir was renamed.
+  protected
+  def file_action_moved_to(path, event, &block)
+    # TODO(sissel): ignore, maybe call close for good measure?
+  end
+
+  protected
+  def file_action_moved_from(path, event, &block)
+    # ignore
+  end # def file_action_moved_from
+
+  protected
+  def file_action_move(path, event, &block)
+    # ignore
+  end # def file_action_move
+
+  protected
+  def file_action_move(path, event, &block)
+    # ignore
+  end # def file_action_move
+
+  protected
+  def file_action_delete(path, event, &block)
+    # ignore
+  end # def file_action_delete
 
   # Returns true if we are currently following the file at the given path.
   public
