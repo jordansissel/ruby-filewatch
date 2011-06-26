@@ -1,3 +1,3 @@
 module FileWatch
-  module Inotify ; end
+  module Stat ; end
 end
