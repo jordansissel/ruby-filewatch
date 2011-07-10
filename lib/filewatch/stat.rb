@@ -2,10 +2,8 @@ require "rubygems"
 require "filewatch/exception"
 require "filewatch/namespace"
 
-class FileWatch::Stat::FD
+module FileWatch; class Stat
   include Enumerable
-
-  attr_reader :fd
 
   public
   def self.can_watch?(filestat)
@@ -13,8 +11,6 @@ class FileWatch::Stat::FD
     return true
   end # def self.can_watch?
 
-  # Create a new FileWatch::Stat::FD instance.
-  # This is the main interface you want to use for watching files.
   public
   def initialize
     @watches = {}
@@ -116,4 +112,4 @@ class FileWatch::Stat::FD
       each(&block)
     end
   end # def subscribe
-end # class FileWatch::Stat::FD
+end; end # class FileWatch::Stat

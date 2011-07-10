@@ -1,5 +1,5 @@
 require "filewatch/namespace"
-require "filewatch/stat/fd"
+require "filewatch/stat"
 require "filewatch/exception"
 
 class FileWatch::Watch
@@ -8,7 +8,7 @@ class FileWatch::Watch
   #
   # For now, it only supports stat polling.
   def initialize
-    @stat = FileWatch::Stat::FD.new
+    @stat = FileWatch::Stat.new
   end
 
   public
