@@ -45,7 +45,7 @@ class FileWatch::WatchGlob
     end
   end # def each
 
-  def subscribe(opts, &block)
+  def subscribe(opts={}, &block)
     opts[:poll_interval] ||= 1
     loop do
       each(&block)
