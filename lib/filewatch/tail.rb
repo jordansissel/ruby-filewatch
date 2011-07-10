@@ -1,50 +1,69 @@
-require "filewatch/watch"
 require "filewatch/namespace"
+require "filewatch/watch"
 
 class FileWatch::Tail
-  # This class exists to wrap inotify, kqueue, periodic polling, etc,
-  # to provide you with a way to watch files and directories.
-  #
-  # For now, it only supports inotify.
+  attr_accessor :logger
+
+  public
   def initialize
     @watch = FileWatch::Watch.new
     @files = {}
-  end
+    @logger = Logger.new(STDERR)
+  end # def initialize
 
   public
-  def watch(path)
-    @watch.watch(path, :create, :delete, :modify)
+  def watch(path, opts={})
+    opts[:position] ||= IO::SEEK_END
+    if @files[path]
+      return # already watching
+    end
 
     # TODO(petef): add since-style support
+    if File.directory?(path)
+      @logger.warn("Skipping directory #{path}")
+      return
+    end
+
+    @watch.watch(path, :create, :delete, :modify)
+
     if File.exists?(path)
-      @files[path] = File.new(path, "r")
-      @files[path].sysseek(0, IO::SEEK_END)
+      file_action_create(path, opts)
     end
   end # def watch
 
-  def subscribe(handler=nil, &block)
-    @watch.subscribe(nil) do |event|
-      path = event.name
-      event.actions.each do |action|
-        # call method 'file_action_<action>' like 'file_action_modify'
-        method = "file_action_#{action}".to_sym
-        if respond_to?(method)
-          send(method, path, event, &block)
-        end
+  def each(&block)
+    @watch.each do |path, event|
+      method = "file_action_#{event}".to_sym
+      if respond_to?(method)
+        send(method, path, &block)
       end
-    end # @watch.subscribe
+    end
+  end
+
+  def subscribe(&block)
+    loop do
+      each(&block)
+
+      sleep(1)
+    end
   end # def subscribe
 
-  def file_action_create(path, event, &block)
+  def file_action_create(path, opts, &block)
     if @files[path]
       raise FileWatch::Exception.new("#{path} got create but already open!")
     end
 
-    @files[path] = File.new(path, "r")
+    opts[:position] ||= 0
+    begin
+      @files[path] = File.new(path, "r")
+      @files[path].sysseek(0, opts[:position])
+    rescue Errno::EACCES
+      @logger.warn("Error opening #{path}: #{$!}")
+    end
   end
 
-  def file_action_delete(path, event, &block)
-    file_action_modify(path, event, &block)  # read what we can from the FD
+  def file_action_delete(path, &block)
+    file_action_modify(path, &block)  # read what we can from the FD
 
     if @files[path]
       @files[path].close
@@ -52,10 +71,8 @@ class FileWatch::Tail
     end
   end
 
-  def file_action_modify(path, event, &block)
-    if !@files[path]
-      @files[path] = File.new(path, "r")
-    end
+  def file_action_modify(path, &block)
+    file_action_create(path) unless @files[path]
 
     loop do
       begin

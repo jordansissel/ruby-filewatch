@@ -1,6 +1,5 @@
 require "rubygems"
 require "filewatch/exception"
-require "filewatch/stat/event"
 require "filewatch/namespace"
 
 class FileWatch::Stat::FD
@@ -61,8 +60,7 @@ class FileWatch::Stat::FD
           # delete event
           puts "filewatch: #{path}: used to exist, deleted" if $DEBUG
           @watches[path][:exists] = false
-          event = FileWatch::Stat::Event.new(path, :delete)
-          yield(event)
+          yield(path, :delete)
         end
         return
       elsif !@watches[path][:exists]
@@ -70,7 +68,7 @@ class FileWatch::Stat::FD
         puts "filewatch: #{path}: used to not exist, created" if $DEBUG
         @watches[path][:exists] = true
         event = FileWatch::Stat::Event.new(path, :create)
-        yield(event)
+        yield(path, :create)
         return
       end
 
@@ -103,11 +101,7 @@ class FileWatch::Stat::FD
       end
 
       notify_events = events.select { |e| state[:watch].member?(e) }
-
-      if notify_events.length > 0
-        event = FileWatch::Stat::Event.new(path, notify_events)
-        yield(event)
-      end
+      notify_events.each { |event| yield(path, event) }
 
       @watches[path][:size] = s.size
       @watches[path][:inode] = s.ino
