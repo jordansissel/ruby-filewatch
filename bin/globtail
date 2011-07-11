@@ -48,4 +48,6 @@ def main(args)
   end # tail.subscribe
 end # def main
 
+$stdout.sync = true
+
 exit(main(ARGV))

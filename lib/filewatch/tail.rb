@@ -48,7 +48,7 @@ class FileWatch::Tail
     end
   end # def subscribe
 
-  def file_action_create(path, opts, &block)
+  def file_action_create(path, opts={}, &block)
     if @files[path]
       raise FileWatch::Exception.new("#{path} got create but already open!")
     end
@@ -56,7 +56,11 @@ class FileWatch::Tail
     opts[:position] ||= 0
     begin
       @files[path] = File.new(path, "r")
-      @files[path].sysseek(0, opts[:position])
+      if opts[:position] == IO::SEEK_END
+        @files[path].sysseek(0, opts[:position])
+      else
+        @files[path].sysseek(opts[:position])
+      end
     rescue Errno::EACCES
       @logger.warn("Error opening #{path}: #{$!}")
     end
@@ -76,8 +80,10 @@ class FileWatch::Tail
 
     loop do
       begin
-        data = @files[path].sysread(4096)
+        data = @files[path].read_nonblock(4096)
         yield path, data
+      rescue Errno::EWOULDBLOCK, Errno::EINTR
+        break
       rescue EOFError
         break
       end

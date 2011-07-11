@@ -12,7 +12,7 @@ class FileWatch::TailGlob
     @glob = FileWatch::WatchGlob.new
     @watch = FileWatch::Tail.new
     @watching = []  # array of files we're watching
-    @inodes = []    # array of inodes (really [maj,min,ino]) we've seen
+    @inodes = Hash.new { |h, k| h[k] = 0 }  # [maj,min,ino] => size
 
     self.logger = Logger.new(STDERR)
   end # def initialize
@@ -45,13 +45,13 @@ class FileWatch::TailGlob
           # we don't care about :delete actions, since @watch will
           # get those, too
           if action == :create
-            file_id = get_file_id(path)
-            if @inodes.member?(file_id)
-              @watch.watch(path, :position => IO::SEEK_END)
+            file_id, size = get_file_info(path)
+            if size >= @inodes[file_id]
+              @watch.watch(path, :position => @inodes[file_id])
             else
-              @inodes << file_id
               @watch.watch(path, :position => 0)
             end
+            @inodes[file_id] = size
           end
         end # @glob.each
 
@@ -68,8 +68,8 @@ class FileWatch::TailGlob
   end # def subscribe
 
   private
-  def get_file_id(path)
+  def get_file_info(path)
     s = File::Stat.new(path)
-    return [s.dev_major, s.dev_minor, s.ino]
+    return [s.dev_major, s.dev_minor, s.ino], s.size
   end
 end # class FileWatch::Tail

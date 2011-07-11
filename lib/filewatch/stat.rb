@@ -63,7 +63,6 @@ module FileWatch; class Stat
         # create event
         puts "filewatch: #{path}: used to not exist, created" if $DEBUG
         @watches[path][:exists] = true
-        event = FileWatch::Stat::Event.new(path, :create)
         yield(path, :create)
         return
       end
