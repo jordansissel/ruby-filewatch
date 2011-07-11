@@ -67,14 +67,13 @@ module FileWatch; class Stat
         return
       end
 
-      # TODO(petef): inode should be ino/dev_major/dev_minor
-      state[:inode] ||= s.ino
+      state[:inode] ||= [s.ino, s.dev_major, s.dev_minor]
 
       events = []
 
       # If the inode numbers have changed, or the size is less than it was
       # last time, send a delete+create event (log was rolled)
-      if state[:inode] != s.ino
+      if state[:inode] != [s.ino, s.dev_major, s.dev_minor]
         puts "filewatch: #{path}: inode changed" if $DEBUG
         events << :delete
         events << :create
@@ -99,7 +98,7 @@ module FileWatch; class Stat
       notify_events.each { |event| yield(path, event) }
 
       @watches[path][:size] = s.size
-      @watches[path][:inode] = s.ino
+      @watches[path][:inode] = [s.ino, s.dev_major, s.dev_minor]
     end # @watches.each
   end # def each
 
