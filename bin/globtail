@@ -10,10 +10,15 @@ config = {
 }
 
 opts = OptionParser.new do |opts|
-  opts.banner = "#{progname} [-v] [-s path] [-i interval] path/glob ..."
+  opts.banner = "#{progname} [-v] [-s path] [-i interval] [-x glob] path/glob ..."
 
   opts.on("-v", "--verbose", "Enable verbose/debug output") do
     config[:verbose] = true
+  end
+
+  opts.on("-x", "--exclude PATH", String, "path to exclude from watching") do |path|
+    config[:exclude] ||= []
+    config[:exclude] << path
   end
 
   opts.on("-s", "--sincedb PATH", String, "Sincedb path") do |path|

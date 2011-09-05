@@ -13,6 +13,7 @@ module FileWatch
         @logger.level = Logger::INFO
       end
       @watching = []
+      @exclude = []
       @files = Hash.new { |h, k| h[k] = Hash.new }
     end # def initialize
 
@@ -21,7 +22,10 @@ module FileWatch
       @logger = logger
     end
 
-    # TODO(petef): support excludes
+    public
+    def exclude(path)
+      path.to_a.each { |p| @exclude << p }
+    end
 
     public
     def watch(path)
@@ -67,6 +71,8 @@ module FileWatch
         inode = [stat.ino, stat.dev_major, stat.dev_minor]
         if inode != @files[path][:inode]
           @logger.debug("#{path}: old inode was #{@files[path][:inode].inspect}, new is #{inode.inspect}")
+          yield(:delete, path)
+          yield(:create, path)
         elsif stat.size < @files[path][:size]
           @logger.debug("#{path}: file rolled, new size is #{stat.size}, old size #{@files[path][:size]}")
           yield(:delete, path)
@@ -110,7 +116,19 @@ module FileWatch
         next if @files.member?(file)
         next unless File.file?(file)
 
-        @logger.debug("_discover_file: #{path}: new: #{file}")
+        @logger.debug("_discover_file: #{path}: new: #{file} (exclude is #{@exclude.inspect})")
+
+        skip = false
+        @exclude.each do |pattern|
+          if File.fnmatch?(pattern, File.basename(file))
+            @logger.debug("_discover_file: #{file}: skipping because it " +
+                          "matches exclude #{pattern}")
+            skip = true
+            break
+          end
+        end
+        next if skip
+
         stat = File::Stat.new(file)
         @files[file] = {
           :size => 0,

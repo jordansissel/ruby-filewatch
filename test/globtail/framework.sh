@@ -5,7 +5,7 @@ test_init() {
   export FW_BASE="$TEST_BASE/../.."
   export RUBYLIB=$FW_BASE/lib:$RUBYLIB
   export SINCEDB=$(mktemp)
-  export TAIL="$FW_BASE/bin/globtail -v -s $SINCEDB -i 5"
+  export TAIL="$FW_BASE/bin/globtail -v -s $SINCEDB -i 5 -x skip*.log"
   export TEST_DIR=$(mktemp -d)
   export TEST_OUT=$(mktemp)
   touch $TEST_OUT

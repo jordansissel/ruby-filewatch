@@ -24,7 +24,9 @@ module FileWatch
       @opts = {
         :sincedb_write_interval => 10,
         :sincedb_path => "#{ENV["HOME"]}/.sincedb",
+        :exclude => [],
       }.merge(opts)
+      @watch.exclude(@opts[:exclude])
 
       _sincedb_open
     end # def initialize
