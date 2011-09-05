@@ -6,7 +6,6 @@ test_init
 test_start
 
 echo 1 > $TEST_DIR/a.log
-sleep 3
 echo 2 >> $TEST_DIR/a.log
 echo 3 >> $TEST_DIR/a.log
 sleep 3

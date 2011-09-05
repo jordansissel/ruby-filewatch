@@ -4,14 +4,16 @@ test_init() {
   export TEST_BASE=$(dirname $0)
   export FW_BASE="$TEST_BASE/../.."
   export RUBYLIB=$FW_BASE/lib:$RUBYLIB
-  export TAIL="$FW_BASE/bin/globtail"
+  export SINCEDB=$(mktemp)
+  export TAIL="$FW_BASE/bin/globtail -v -s $SINCEDB -i 5"
   export TEST_DIR=$(mktemp -d)
   export TEST_OUT=$(mktemp)
+  touch $TEST_OUT
   mkdir -p $TEST_DIR
 }
 
 test_start() {
-  $TAIL "$TEST_DIR/*" >$TEST_OUT 2>&1 &
+  $TAIL "$TEST_DIR/*" >>$TEST_OUT 2>&1 &
   export TEST_TAIL_PID=$!
 
   # let globtail get started and do it's initial glob
@@ -19,7 +21,7 @@ test_start() {
 }
 
 test_stop() {
-  kill $TEST_TAIL_PID
+  kill $TEST_TAIL_PID 2>/dev/null
   count=0
   while kill -0 $TEST_TAIL_PID 2>/dev/null; do
     count=$((count+1))
@@ -51,6 +53,6 @@ test_done() {
     sed -e 's,^,output: ,' $TEST_OUT
   fi
 
-  rm -rf $TEST_DIR $TEST_OUT $output $output_clean
+  rm -rf $TEST_DIR $TEST_OUT $output $output_clean $SINCEDB
   exit $diff_rc
 }
