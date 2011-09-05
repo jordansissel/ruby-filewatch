@@ -1,6 +1,7 @@
 test:
-	@for file in test*.sh; do \
-		echo "$$file:" ; \
-		./$$file || exit 1 ; \
+	@i=1; while [ -x "test$${i}.sh" ]; do \
+		echo "test$${i}:" ; \
+		./test$${i}.sh || exit 1 ; \
 		echo "PASS" ; \
+		i=$$(($$i+1)) ; \
 	done
