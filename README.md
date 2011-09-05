@@ -7,7 +7,7 @@
 
 For developers, see FileWatch::Watch and FileWatch::Tail.
 
-Tested on Linux/x86_64.
+Tested on Linux/x86_64 and Solaris.
 
 All operating systems should be supported. If you run the tests on
 another platform, please open a Github issue with the output (even
