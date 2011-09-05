@@ -24,6 +24,8 @@ module FileWatch
       @opts = {
         :sincedb_write_interval => 10,
         :sincedb_path => "#{ENV["HOME"]}/.sincedb",
+        :stat_interval => 1,
+        :discover_interval => 5,
         :exclude => [],
       }.merge(opts)
       @watch.exclude(@opts[:exclude])
@@ -45,7 +47,8 @@ module FileWatch
     public
     def subscribe(&block)
       # subscribe(stat_interval = 1, discover_interval = 5, &block)
-      @watch.subscribe do |event, path|
+      @watch.subscribe(@opts[:stat_interval],
+                       @opts[:discover_interval]) do |event, path|
         case event
         when :create, :create_initial
           if @files.member?(path)
