@@ -1,4 +1,5 @@
 #!/bin/sh
+# Test: basic tail support
 
 . $(dirname $0)/framework.sh
 

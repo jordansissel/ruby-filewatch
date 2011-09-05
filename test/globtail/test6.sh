@@ -1,4 +1,6 @@
 #!/bin/sh
+# Test: ensure sincedb periodic database writing works (make sure we're not
+# relying on SIGTERM handling)
 
 . $(dirname $0)/framework.sh
 

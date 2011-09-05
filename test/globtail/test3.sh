@@ -1,4 +1,6 @@
 #!/bin/sh
+# Test: tests glob discovery of a new file, and in-memory sincedb
+# preserving file position after a rename
 
 . $(dirname $0)/framework.sh
 

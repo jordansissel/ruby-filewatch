@@ -1,4 +1,5 @@
 #!/bin/sh
+# Test: tests file truncation
 
 . $(dirname $0)/framework.sh
 
