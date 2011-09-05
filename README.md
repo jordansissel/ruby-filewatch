@@ -5,16 +5,13 @@
 * gem install filewatch
 * globtail -x '*.gz' '/var/log/*'
 
-For developers, see FileWatch::Watch, FileWatch::Tail, FileWatch::WatchGlob,
-and FileWatch::TailGlob.
+For developers, see FileWatch::Watch and FileWatch::Tail.
 
-Supported platforms:
+Tested on Linux/x86_64.
 
-* JRuby
-* MRI (without EventMachine)
-* EventMachine/MRI
-
-All operating systems should be supported.  Tested on Linux.
+All operating systems should be supported. If you run the tests on
+another platform, please open a Github issue with the output (even
+if it passes, so we can update this document).
 
 ## Overview
 
@@ -28,10 +25,10 @@ Goals:
 Example code (standalone):
 
     require "rubygems"
-    require "filewatch/watchglob"
+    require "filewatch/tail"
 
-    w = FileWatch::WatchGlob.new
-    w.watch("/tmp/*", :create, :delete)
-    w.subscribe do |path, event|
-      puts "#{event}: #{path}"
+    t = FileWatch::Tail.new
+    t.tail("/tmp/test*.log")
+    t.subscribe do |path, line|
+      puts "#{path}: #{line}"
     end
