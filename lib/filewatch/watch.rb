@@ -6,7 +6,12 @@ module FileWatch
 
     public
     def initialize(opts={})
-      @logger = Logger.new(STDERR)
+      if opts[:logger]
+        @logger = opts[:logger]
+      else
+        @logger = Logger.new(STDERR)
+        @logger.level = Logger::INFO
+      end
       @watching = []
       @files = Hash.new { |h, k| h[k] = Hash.new }
     end # def initialize
