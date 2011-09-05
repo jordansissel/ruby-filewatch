@@ -6,8 +6,7 @@ tail = FileWatch::Tail.new
 
 ARGV.each { |path| tail.tail(path) }
 
+$stdout.sync = true
 tail.subscribe do |path, line|
   puts "#{path}: #{line}"
 end
-
-$stdout.sync = true
