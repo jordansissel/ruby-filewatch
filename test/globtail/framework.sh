@@ -7,23 +7,50 @@ test_init() {
   export TAIL="$FW_BASE/bin/globtail"
   export TEST_DIR=$(mktemp -d)
   export TEST_OUT=$(mktemp)
+  mkdir -p $TEST_DIR
+}
+
+test_start() {
   $TAIL "$TEST_DIR/*" >$TEST_OUT 2>&1 &
   export TEST_TAIL_PID=$!
+
+  # let globtail get started and do it's initial glob
+  sleep 3
+}
+
+test_stop() {
+  kill $TEST_TAIL_PID
+  count=0
+  while kill -0 $TEST_TAIL_PID 2>/dev/null; do
+    count=$((count+1))
+    sleep 1
+    if [ "$count" -eq 5 ]; then
+      kill -9 $TEST_TAIL_PID
+      count=0
+    fi
+  done
+  export TEST_TAIL_PID=""
 }
 
 test_done() {
-  kill $TEST_TAIL_PID
+  [ -n "$TEST_TAIL_PID" ] && test_stop
 
   output=$(mktemp)
+  output_clean=$(mktemp)
   sed -e "s,^${TEST_DIR}/,," $TEST_OUT | sort > $output
+  sed -e '/^D, \[/d' < $output > $output_clean
 
   data_file=$(echo $0 | sed -e 's/\.sh$/.data/')
-  diff -u $TEST_BASE/$data_file $output
+
+  diff $TEST_BASE/$data_file $output_clean >/dev/null
   diff_rc=$?
-  rm -rf $TEST_DIR $TEST_OUT $output
+
   if [ $diff_rc -ne 0 ]; then
+    diff -u $TEST_BASE/$data_file $output_clean
     echo "$0 TEST FAILURE (output differs)"
-    exit 1
+    sed -e 's,^,output: ,' $TEST_OUT
   fi
-  exit 0
+
+  rm -rf $TEST_DIR $TEST_OUT $output $output_clean
+  exit $diff_rc
 }
