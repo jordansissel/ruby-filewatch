@@ -1,59 +1,181 @@
+require "filewatch/buftok"
 require "filewatch/watch"
-require "filewatch/namespace"
+require "logger"
 
-class FileWatch::Tail
-  # This class exists to wrap inotify, kqueue, periodic polling, etc,
-  # to provide you with a way to watch files and directories.
-  #
-  # For now, it only supports inotify.
-  def initialize
-    @watch = FileWatch::Watch.new
-    @files = {}
-  end
+module FileWatch
+  class Tail
+    attr_accessor :logger
 
-  public
-  def watch(path, *what_to_watch)
-    @watch.watch(path, *what_to_watch)
-
-    if File.file?(path)
-      @files[path] = File.new(path, "r")
-      
-      # TODO(sissel): Support 'since'-like support.
-      # Always start at the end of the file, this may change in the future.
-      @files[path].sysseek(0, IO::SEEK_END)
-    end
-  end # def watch
-
-  def subscribe(handler=nil, &block)
-    @watch.subscribe(nil) do |event|
-      path = event.name
-      if @files.include?(path)
-        file = @files[path]
-        event.actions.each do |action|
-          # call method 'file_action_<action>' like 'file_action_modify'
-          method = "file_action_#{action}".to_sym
-          if respond_to?(method)
-            send(method, file, event, &block)
-          else
-            $stderr.puts "Unsupported method #{self.class.name}##{method}"
-          end
-        end
+    public
+    def initialize(opts={})
+      if opts[:logger]
+        @logger = opts[:logger]
       else
-        $stderr.puts "Event on unwatched file: #{event}"
+        @logger = Logger.new(STDERR)
+        @logger.level = Logger::INFO
       end
-    end
-  end # def subscribe
+      @files = {}
+      @buffers = {}
+      @watch = FileWatch::Watch.new
+      @watch.logger = @logger
+      @sincedb = {}
+      @sincedb_last_write = 0
+      @statcache = {}
+      @opts = {
+        :sincedb_write_interval => 10,
+        :sincedb_path => "#{ENV["HOME"]}/.sincedb",
+        :exclude => [],
+      }.merge(opts)
+      @watch.exclude(@opts[:exclude])
 
-  def file_action_modify(file, event)
-    loop do
+      _sincedb_open
+    end # def initialize
+
+    public
+    def logger=(logger)
+      @logger = logger
+      @watch.logger = logger
+    end # def logger=
+
+    public
+    def tail(path)
+      @watch.watch(path)
+    end # def tail
+
+    public
+    def subscribe(&block)
+      # subscribe(stat_interval = 1, discover_interval = 5, &block)
+      @watch.subscribe do |event, path|
+        case event
+        when :create, :create_initial
+          if @files.member?(path)
+            @logger.debug("#{event} for #{path}: already exists in @files")
+            next
+          end
+          _open_file(path, event)
+          _read_file(path, &block)
+        when :modify
+          if !@files.member?(path)
+            @logger.debug(":modify for #{path}, does not exist in @files")
+            _open_file(path)
+          end
+          _read_file(path, &block)
+        when :delete
+          @logger.debug(":delete for #{path}, deleted from @files")
+          _read_file(path, &block)
+          @files[path].close
+          @files.delete(path)
+          @statcache.delete(path)
+        else
+          @logger.warn("unknown event type #{event} for #{path}")
+        end
+      end # @watch.subscribe
+    end # def each
+
+    private
+    def _open_file(path, event)
+      @logger.debug("_open_file: #{path}: opening")
+      # TODO(petef): handle File.open failing
       begin
-        data = file.sysread(4096)
-        event.metadata[:position] = file.pos
-        yield event.name, data
-      rescue EOFError
-        break
+        @files[path] = File.open(path)
+      rescue Errno::ENOENT
+        @logger.warn("#{path}: open: #{$!}")
+        @files.delete(path)
+        return
       end
-    end
-  end
 
-end # class FileWatch::Tail
+      stat = File::Stat.new(path)
+      inode = [stat.ino, stat.dev_major, stat.dev_minor]
+      @statcache[path] = inode
+
+      if @sincedb.member?(inode)
+        last_size = @sincedb[inode]
+        @logger.debug("#{path}: sincedb last value #{@sincedb[inode]}, cur size #{stat.size}")
+        if last_size <= stat.size
+          @logger.debug("#{path}: sincedb: seeking to #{last_size}")
+          @files[path].sysseek(last_size, IO::SEEK_SET)
+        else
+          @logger.debug("#{path}: last value size is greater than current value, starting over")
+          @sincedb[inode] = 0
+        end
+      elsif event == :create_initial && @files[path]
+        @logger.debug("#{path}: initial create, no sincedb, seeking to end #{stat.size}")
+        @files[path].sysseek(stat.size, IO::SEEK_SET)
+        @sincedb[inode] = stat.size
+      else
+        @logger.debug("#{path}: staying at position 0, no sincedb")
+      end
+    end # def _open_file
+
+    private
+    def _read_file(path, &block)
+      @buffers[path] ||= FileWatch::BufferedTokenizer.new
+
+      changed = false
+      loop do
+        begin
+          data = @files[path].read_nonblock(4096)
+          changed = true
+          @buffers[path].extract(data).each do |line|
+            yield(path, line)
+          end
+
+          @sincedb[@statcache[path]] = @files[path].pos
+        rescue Errno::EWOULDBLOCK, Errno::EINTR, EOFError
+          break
+        end
+      end
+
+      if changed
+        now = Time.now.to_i
+        delta = now - @sincedb_last_write
+        if delta >= @opts[:sincedb_write_interval]
+          @logger.debug("writing sincedb (delta since last write = #{delta})")
+          _sincedb_write
+          @sincedb_last_write = now
+        end
+      end
+    end # def _read_file
+
+    public
+    def sincedb_write(reason=nil)
+      @logger.debug("caller requested sincedb write (#{reason})")
+      _sincedb_write
+    end
+
+    private
+    def _sincedb_open
+      path = @opts[:sincedb_path]
+      begin
+        db = File.open(path)
+      rescue
+        @logger.debug("_sincedb_open: #{path}: #{$!}")
+        return
+      end
+
+      @logger.debug("_sincedb_open: reading from #{path}")
+      db.each do |line|
+        ino, dev_major, dev_minor, pos = line.split(" ", 4)
+        inode = [ino.to_i, dev_major.to_i, dev_minor.to_i]
+        @logger.debug("_sincedb_open: setting #{inode.inspect} to #{pos.to_i}")
+        @sincedb[inode] = pos.to_i
+      end
+    end # def _sincedb_open
+
+    private
+    def _sincedb_write
+      path = @opts[:sincedb_path]
+      begin
+        db = File.open(path, "w")
+      rescue
+        @logger.debug("_sincedb_write: #{path}: #{$!}")
+        return
+      end
+
+      @sincedb.each do |inode, pos|
+        db.puts([inode, pos].flatten.join(" "))
+      end
+      db.close
+    end # def _sincedb_write
+  end # class Watch
+end # module FileWatch

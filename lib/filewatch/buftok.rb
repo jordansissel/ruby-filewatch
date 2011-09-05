@@ -29,7 +29,7 @@
 #    end
 #  end
 
-class BufferedTokenizer
+module FileWatch; class BufferedTokenizer
   # New BufferedTokenizers will operate on lines delimited by "\n" by default
   # or allow you to specify any delimiter token you so choose, which will then
   # be used by String#split to tokenize the input data
@@ -136,4 +136,4 @@ cter token support.
   def empty?
     @input.empty?
   end
-end
+end; end
