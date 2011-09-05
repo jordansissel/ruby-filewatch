@@ -8,17 +8,31 @@ module FileWatch
 
     public
     def initialize(opts={})
-      @logger = Logger.new(STDERR)
+      if opts[:logger]
+        @logger = opts[:logger]
+      else
+        @logger = Logger.new(STDERR)
+        @logger.level = Logger::INFO
+      end
       @files = {}
       @buffers = {}
       @watch = FileWatch::Watch.new
-      @sincedb = {}  # TODO: load from disk
+      @watch.logger = @logger
+      @sincedb = {}
+      @sincedb_last_write = 0
       @statcache = {}
+      @opts = {
+        :sincedb_write_interval => 10,
+        :sincedb_path => "#{ENV["HOME"]}/.sincedb",
+      }.merge(opts)
+
+      _sincedb_open
     end # def initialize
 
     public
     def logger=(logger)
       @logger = logger
+      @watch.logger = logger
     end # def logger=
 
     public
@@ -95,9 +109,11 @@ module FileWatch
     def _read_file(path, &block)
       @buffers[path] ||= BufferedTokenizer.new
 
+      changed = false
       loop do
         begin
           data = @files[path].read_nonblock(4096)
+          changed = true
           @buffers[path].extract(data).each do |line|
             yield(path, line)
           end
@@ -107,6 +123,57 @@ module FileWatch
           break
         end
       end
+
+      if changed
+        now = Time.now.to_i
+        delta = now - @sincedb_last_write
+        if delta >= @opts[:sincedb_write_interval]
+          @logger.debug("writing sincedb (delta since last write = #{delta})")
+          _sincedb_write
+          @sincedb_last_write = now
+        end
+      end
     end # def _read_file
+
+    public
+    def sincedb_write(reason=nil)
+      @logger.debug("caller requested sincedb write (#{reason})")
+      _sincedb_write
+    end
+
+    private
+    def _sincedb_open
+      path = @opts[:sincedb_path]
+      begin
+        db = File.open(path)
+      rescue
+        @logger.debug("_sincedb_open: #{path}: #{$!}")
+        return
+      end
+
+      @logger.debug("_sincedb_open: reading from #{path}")
+      db.each do |line|
+        ino, dev_major, dev_minor, pos = line.split(" ", 4)
+        inode = [ino.to_i, dev_major.to_i, dev_minor.to_i]
+        @logger.debug("_sincedb_open: setting #{inode.inspect} to #{pos.to_i}")
+        @sincedb[inode] = pos.to_i
+      end
+    end # def _sincedb_open
+
+    private
+    def _sincedb_write
+      path = @opts[:sincedb_path]
+      begin
+        db = File.open(path, "w")
+      rescue
+        @logger.debug("_sincedb_write: #{path}: #{$!}")
+        return
+      end
+
+      @sincedb.each do |inode, pos|
+        db.puts([inode, pos].flatten.join(" "))
+      end
+      db.close
+    end # def _sincedb_write
   end # class Watch
 end # module FileWatch
