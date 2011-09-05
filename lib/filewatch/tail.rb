@@ -109,7 +109,7 @@ module FileWatch
 
     private
     def _read_file(path, &block)
-      @buffers[path] ||= BufferedTokenizer.new
+      @buffers[path] ||= FileWatch::BufferedTokenizer.new
 
       changed = false
       loop do
