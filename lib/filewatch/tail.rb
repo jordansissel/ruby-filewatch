@@ -37,6 +37,7 @@ module FileWatch
             next
           end
           _open_file(path, event)
+          _read_file(path, &block)
         when :modify
           if !@files.member?(path)
             @logger.debug(":modify for #{path}, does not exist in @files")
