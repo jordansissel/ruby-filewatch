@@ -81,7 +81,7 @@ module FileWatch
       # TODO(petef): handle File.open failing
       begin
         @files[path] = File.open(path)
-      rescue Errno::ENOENT
+      rescue Errno::ENOENT, Errno::EACCES
         @logger.warn("#{path}: open: #{$!}")
         @files.delete(path)
         return
