@@ -23,7 +23,7 @@ module FileWatch
       @statcache = {}
       @opts = {
         :sincedb_write_interval => 10,
-        :sincedb_path => "#{ENV["HOME"]}/.sincedb",
+        :sincedb_path => ENV["SINCEDB_PATH"] || "#{ENV["HOME"]}/.sincedb",
         :stat_interval => 1,
         :discover_interval => 5,
         :exclude => [],
