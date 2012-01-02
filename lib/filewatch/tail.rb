@@ -4,6 +4,10 @@ require "logger"
 
 module FileWatch
   class Tail
+    # how often (in seconds) we @logger.warn a failed file open, per path.
+    OPEN_WARN_INTERVAL = ENV["FILEWATCH_OPEN_WARN_INTERVAL"] ?
+                         ENV["FILEWATCH_OPEN_WARN_INTERVAL"].to_i : 300
+
     attr_accessor :logger
 
     public
@@ -15,6 +19,7 @@ module FileWatch
         @logger.level = Logger::INFO
       end
       @files = {}
+      @lastwarn = Hash.new { |h, k| h[k] = 0 }
       @buffers = {}
       @watch = FileWatch::Watch.new
       @watch.logger = @logger
@@ -55,14 +60,18 @@ module FileWatch
             @logger.debug("#{event} for #{path}: already exists in @files")
             next
           end
-          _open_file(path, event)
-          _read_file(path, &block)
+          if _open_file(path, event)
+            _read_file(path, &block)
+          end
         when :modify
           if !@files.member?(path)
             @logger.debug(":modify for #{path}, does not exist in @files")
-            _open_file(path)
+            if _open_file(path, event)
+              _read_file(path, &block)
+            end
+          else
+            _read_file(path, &block)
           end
-          _read_file(path, &block)
         when :delete
           @logger.debug(":delete for #{path}, deleted from @files")
           _read_file(path, &block)
@@ -78,13 +87,21 @@ module FileWatch
     private
     def _open_file(path, event)
       @logger.debug("_open_file: #{path}: opening")
-      # TODO(petef): handle File.open failing
       begin
         @files[path] = File.open(path)
-      rescue Errno::ENOENT, Errno::EACCES
-        @logger.warn("#{path}: open: #{$!}")
+      rescue
+        # don't emit this message too often. if a file that we can't
+        # read is changing a lot, we'll try to open it more often,
+        # and might be spammy.
+        now = Time.now.to_i
+        if now - @lastwarn[path] > OPEN_WARN_INTERVAL
+          @logger.warn("failed to open #{path}: #{$!}")
+          @lastwarn[path] = now
+        else
+          @logger.debug("(warn supressed) failed to open #{path}: #{$!}")
+        end
         @files.delete(path)
-        return
+        return false
       end
 
       stat = File::Stat.new(path)
@@ -108,6 +125,8 @@ module FileWatch
       else
         @logger.debug("#{path}: staying at position 0, no sincedb")
       end
+
+      return true
     end # def _open_file
 
     private
