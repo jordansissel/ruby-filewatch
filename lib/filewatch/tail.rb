@@ -25,6 +25,7 @@ module FileWatch
       @watch.logger = @logger
       @sincedb = {}
       @sincedb_last_write = 0
+      @sincedb_mtime = 0
       @statcache = {}
       @opts = {
         :sincedb_write_interval => 10,
@@ -36,6 +37,7 @@ module FileWatch
       @watch.exclude(@opts[:exclude])
 
       _sincedb_open
+      @logger.debug("intervals are stat_write:#{@opts[:sincedb_write_interval]} stat:#{@opts[:stat_interval]} discover:#{@opts[:discover_interval]}")
     end # def initialize
 
     public
@@ -54,6 +56,14 @@ module FileWatch
       # subscribe(stat_interval = 1, discover_interval = 5, &block)
       @watch.subscribe(@opts[:stat_interval],
                        @opts[:discover_interval]) do |event, path|
+                         
+        if File.mtime(@opts[:sincedb_path]).to_i > @sincedb_last_write.to_i
+          # last write of sincedb wasn't this thread so reread
+        #  _sincedb_open
+          @logger.debug(":rereading_sincedb_: dirty cache I want you. not.")
+          # not implemented
+        end
+                         
         case event
         when :create, :create_initial
           if @files.member?(path)
@@ -123,7 +133,7 @@ module FileWatch
         @files[path].sysseek(stat.size, IO::SEEK_SET)
         @sincedb[inode] = stat.size
       else
-        @logger.debug("#{path}: staying at position 0, no sincedb")
+        @logger.debug("#{path}: staying at position 0, not in sincedb")
       end
 
       return true
@@ -144,6 +154,7 @@ module FileWatch
 
           @sincedb[@statcache[path]] = @files[path].pos
         rescue Errno::EWOULDBLOCK, Errno::EINTR, EOFError
+          @logger.debug("blocking, EOFing, or ...continues")
           break
         end
       end
@@ -153,7 +164,7 @@ module FileWatch
         delta = now - @sincedb_last_write
         if delta >= @opts[:sincedb_write_interval]
           @logger.debug("writing sincedb (delta since last write = #{delta})")
-          _sincedb_write
+          _sincedb_merge
           @sincedb_last_write = now
         end
       end
@@ -162,18 +173,20 @@ module FileWatch
     public
     def sincedb_write(reason=nil)
       @logger.debug("caller requested sincedb write (#{reason})")
-      _sincedb_write
+      _sincedb_merge
     end
 
     private
     def _sincedb_open
       path = @opts[:sincedb_path]
       begin
-        db = File.open(path)
+        db = File.open(path,"r")
       rescue
         @logger.debug("_sincedb_open: #{path}: #{$!}")
         return
       end
+      
+      @sincedb_mtime = File.mtime(path)
 
       @logger.debug("_sincedb_open: reading from #{path}")
       db.each do |line|
@@ -182,22 +195,50 @@ module FileWatch
         @logger.debug("_sincedb_open: setting #{inode.inspect} to #{pos.to_i}")
         @sincedb[inode] = pos.to_i
       end
+      db.close # @todo maybe unnecessary.. will need to check.
     end # def _sincedb_open
 
     private
-    def _sincedb_write
+    def _sincedb_merge
       path = @opts[:sincedb_path]
+      @logger.debug("calling sincedb merge on sincedb (#{path}), there are #{@files.keys.size} elements to merge")
+      @logger.debug("#{File.open(path,"r").readlines.inspect} here it goes")  
+      # notes: http://pleac.sourceforge.net/pleac_ruby/fileaccess.html
+      # notes: http://www.techotopia.com/index.php/Working_with_Files_in_Ruby#Reading_and_Writing_Files
+      # make other threads wait while reading and writing sincedb
       begin
-        db = File.open(path, "w")
+        db = File.open(path, "r+")
+        db.flock(File::LOCK_EX)
       rescue
-        @logger.debug("_sincedb_write: #{path}: #{$!}")
+        @logger.debug("ERROR: _sincedb_merge: #{path}: #{$!}")
         return
       end
+      
+      # structure to hold the disk version of sincedb during merge
+      diskdb = {}
+      
+      @logger.debug("_sincedb_open: for merge, reading from #{path}")
+      db.each do |line|
+        ino, dev_major, dev_minor, pos = line.split(" ", 4)
+        inode = [ino.to_i, dev_major.to_i, dev_minor.to_i]
+        @logger.debug("_diskdb_open: setting #{inode.inspect} to #{pos.to_i}")
+        diskdb[inode] = pos.to_i
+      end
+      
+      # merge the list of this instance files to the disk version
+      @files.keys.each do |file|
+        @logger.debug("merging #{@statcache[file].inspect}  for #{file} pos is #{@sincedb[@statcache[file]]} ")
+         diskdb[@statcache[file]] = @sincedb[@statcache[file]]
+      end
 
-      @sincedb.each do |inode, pos|
+      db.truncate(0)
+      db.seek(0, IO::SEEK_SET)
+      diskdb.each do |inode, pos|
+        @logger.debug("#{inode.inspect} #{pos}")
         db.puts([inode, pos].flatten.join(" "))
       end
-      db.close
+      db.flock(File::LOCK_UN)
+      db.close      
     end # def _sincedb_write
   end # class Watch
 end # module FileWatch
