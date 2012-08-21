@@ -10,6 +10,8 @@ module FileWatch
 
     attr_accessor :logger
 
+    class NoSinceDBPathGiven < StandardError; end
+
     public
     def initialize(opts={})
       if opts[:logger]
@@ -28,11 +30,17 @@ module FileWatch
       @statcache = {}
       @opts = {
         :sincedb_write_interval => 10,
-        :sincedb_path => ENV["SINCEDB_PATH"] || File.join(ENV["HOME"], ".sincedb"),
         :stat_interval => 1,
         :discover_interval => 5,
         :exclude => [],
       }.merge(opts)
+      if !@opts.include?(:sincedb_path)
+        @opts[:sincedb_path] = File.join(ENV["HOME"], ".sincedb") if ENV.include?("HOME")
+        @opts[:sincedb_path] = ENV["SINCEDB_PATH"] if ENV.include?("SINCEDB_PATH")
+      end
+      if !@opts.include?(:sincedb_path)
+        raise NoSinceDBPathGiven.new("No HOME or SINCEDB_PATH set in environment. I need one of these set so I can keep track of the files I am following.")
+      end
       @watch.exclude(@opts[:exclude])
 
       _sincedb_open
