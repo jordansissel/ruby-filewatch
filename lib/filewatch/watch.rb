@@ -112,7 +112,13 @@ module FileWatch
 
     private
     def _discover_file(path, initial=false)
-      Dir.glob(path).each do |file|
+      globbed_dirs = Dir.glob(path)
+      @logger.debug("_discover_file_glob: #{path}: glob is: #{globbed_dirs}")
+      if globbed_dirs.empty? && File.file?(path)
+        globbed_dirs = [path]
+        @logger.debug("_discover_file_glob: #{path}: glob is: #{globbed_dirs} because glob did not work")
+      end
+      globbed_dirs.each do |file|
         next if @files.member?(file)
         next unless File.file?(file)
 
