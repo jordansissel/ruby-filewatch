@@ -33,6 +33,7 @@ module FileWatch
         :stat_interval => 1,
         :discover_interval => 5,
         :exclude => [],
+        :start_new_files_at => :end
       }.merge(opts)
       if !@opts.include?(:sincedb_path)
         @opts[:sincedb_path] = File.join(ENV["HOME"], ".sincedb") if ENV.include?("HOME")
@@ -127,9 +128,17 @@ module FileWatch
           @sincedb[inode] = 0
         end
       elsif event == :create_initial && @files[path]
-        @logger.debug("#{path}: initial create, no sincedb, seeking to end #{stat.size}")
-        @files[path].sysseek(stat.size, IO::SEEK_SET)
-        @sincedb[inode] = stat.size
+        # TODO(sissel): Allow starting at beginning of the file.
+        if @opts[:start_new_files_at] == :beginning
+          @logger.debug("#{path}: initial create, no sincedb, seeking to beginning of file")
+          @files[path].sysseek(0, IO::SEEK_SET)
+          @sincedb[inode] = 0
+        else 
+          # seek to end
+          @logger.debug("#{path}: initial create, no sincedb, seeking to end #{stat.size}")
+          @files[path].sysseek(stat.size, IO::SEEK_SET)
+          @sincedb[inode] = stat.size
+        end
       else
         @logger.debug("#{path}: staying at position 0, no sincedb")
       end
