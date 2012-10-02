@@ -97,7 +97,8 @@ module FileWatch
     public
     def subscribe(stat_interval = 1, discover_interval = 5, &block)
       glob = 0
-      loop do
+      @quit = false
+      while !@quit
         each(&block)
 
         glob += 1
@@ -147,5 +148,9 @@ module FileWatch
       end
     end # def _discover_file
 
+    public
+    def quit
+      @quit = true
+    end # def quit
   end # class Watch
 end # module FileWatch

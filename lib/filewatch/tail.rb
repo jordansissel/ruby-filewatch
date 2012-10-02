@@ -216,5 +216,10 @@ module FileWatch
       end
       db.close
     end # def _sincedb_write
-  end # class Watch
+
+    public
+    def quit
+      @watch.quit
+    end # def quit
+  end # class Tail
 end # module FileWatch
