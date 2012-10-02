@@ -2,6 +2,7 @@ task :default => [:package]
 
 task :test do
   system("cd test/globtail && make")
+  system("ruby test/filewatch/tail.rb")
 end
 
 task :package => [:test, :package_real]  do
