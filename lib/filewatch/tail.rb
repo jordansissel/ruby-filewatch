@@ -84,8 +84,13 @@ module FileWatch
         when :delete
           @logger.debug(":delete for #{path}, deleted from @files")
           _read_file(path, &block)
-          @files[path].close
-          @files.delete(path)
+		  if  @files.member?(path) 
+		    if @files[path] != nil
+				@files[path].close
+			end
+			@files.delete(path)
+		  end
+          
           @statcache.delete(path)
         else
           @logger.warn("unknown event type #{event} for #{path}")
@@ -160,7 +165,7 @@ module FileWatch
           end
 
           @sincedb[@statcache[path]] = @files[path].pos
-        rescue Errno::EWOULDBLOCK, Errno::EINTR, EOFError
+        rescue Errno::EWOULDBLOCK, Errno::EINTR, EOFError, NoMethodError
           break
         end
       end
@@ -174,6 +179,14 @@ module FileWatch
           @sincedb_last_write = now
         end
       end
+	  if ENV['CloseAfterRead'] == "true"
+		if  @files.member?(path) 
+		  if @files[path] != nil
+			@files[path].close
+		  end
+		  @files.delete(path)
+		end
+	  end
     end # def _read_file
 
     public
