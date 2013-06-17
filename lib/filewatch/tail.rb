@@ -4,6 +4,8 @@ require "filewatch/winhelper"
 require "logger"
 require "rbconfig"
 
+include Java if defined? JRUBY_VERSION
+require "JRubyFileExtension.jar" if defined? JRUBY_VERSION
 
 module FileWatch
   class Tail
@@ -17,7 +19,7 @@ module FileWatch
 
     public
     def initialize(opts={})
-	  @iswindows = ((RbConfig::CONFIG['host_os'] =~ /mswin|mingw|cygwin/) != nil)
+      @iswindows = ((RbConfig::CONFIG['host_os'] =~ /mswin|mingw|cygwin/) != nil)
 
       if opts[:logger]
         @logger = opts[:logger]
@@ -102,7 +104,11 @@ module FileWatch
     def _open_file(path, event)
       @logger.debug("_open_file: #{path}: opening")
       begin
-        @files[path] = File.open(path)
+        if @iswindows && defined? JRUBY_VERSION
+            @files[path] = Java::RubyFileExt::getRubyFile(path)
+        else
+            @files[path] = File.open(path)
+        end
       rescue
         # don't emit this message too often. if a file that we can't
         # read is changing a lot, we'll try to open it more often,
@@ -120,13 +126,13 @@ module FileWatch
 
       stat = File::Stat.new(path)
       
-	  if @iswindows
-		fileId = Winhelper.GetWindowsUniqueFileIdentifier(path)
-		inode = [fileId, stat.dev_major, stat.dev_minor]
-	  else
-		inode = [stat.ino.to_s, stat.dev_major, stat.dev_minor]
-	  end
-	  
+      if @iswindows
+        fileId = Winhelper.GetWindowsUniqueFileIdentifier(path)
+        inode = [fileId, stat.dev_major, stat.dev_minor]
+      else
+        inode = [stat.ino.to_s, stat.dev_major, stat.dev_minor]
+        end
+  
       @statcache[path] = inode
 
       if @sincedb.member?(inode)
@@ -207,7 +213,7 @@ module FileWatch
       @logger.debug("_sincedb_open: reading from #{path}")
       db.each do |line|
         ino, dev_major, dev_minor, pos = line.split(" ", 4)
-		inode = [ino, dev_major.to_i, dev_minor.to_i]
+        inode = [ino, dev_major.to_i, dev_minor.to_i]
         @logger.debug("_sincedb_open: setting #{inode.inspect} to #{pos.to_i}")
         @sincedb[inode] = pos.to_i
       end
