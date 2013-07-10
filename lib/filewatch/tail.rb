@@ -204,10 +204,11 @@ module FileWatch
     private
     def _sincedb_write
       path = @opts[:sincedb_path]
+      tmp = "#{path}.new"
       begin
-        db = File.open(path, "w")
-      rescue
-        @logger.debug("_sincedb_write: #{path}: #{$!}")
+        db = File.open(tmp, "w")
+      rescue => e
+        @logger.warn("_sincedb_write failed: #{tmp}: #{e}")
         return
       end
 
@@ -215,6 +216,12 @@ module FileWatch
         db.puts([inode, pos].flatten.join(" "))
       end
       db.close
+
+      begin
+        File.rename(tmp, path)
+      rescue => e
+        @logger.warn("_sincedb_write rename/sync failed: #{tmp} -> #{path}: #{e}")
+      end
     end # def _sincedb_write
 
     public
