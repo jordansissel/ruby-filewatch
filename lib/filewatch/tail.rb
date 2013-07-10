@@ -203,11 +203,12 @@ module FileWatch
 
     private
     def _sincedb_write
+      tmpath = "#{@opts[:sincedb_path]}.swap"
       path = @opts[:sincedb_path]
       begin
-        db = File.open(path, "w")
+        db = File.open(tmpath, "w")
       rescue
-        @logger.debug("_sincedb_write: #{path}: #{$!}")
+        @logger.debug("_sincedb_write: #{tmpath}: #{$!}")
         return
       end
 
@@ -215,6 +216,13 @@ module FileWatch
         db.puts([inode, pos].flatten.join(" "))
       end
       db.close
+
+      begin
+        File.rename(tmpath, path)
+      rescue
+        @logger.debug("_sincedb_write: #{path}: #{$!}")
+        return
+      end
     end # def _sincedb_write
 
     public
