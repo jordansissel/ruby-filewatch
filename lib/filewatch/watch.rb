@@ -1,4 +1,5 @@
 require "logger"
+require "filewatch/winhelper"
 
 module FileWatch
   class Watch
@@ -6,6 +7,7 @@ module FileWatch
 
     public
     def initialize(opts={})
+      @iswindows = ((RbConfig::CONFIG['host_os'] =~ /mswin|mingw|cygwin/) != nil)
       if opts[:logger]
         @logger = opts[:logger]
       else
@@ -68,7 +70,13 @@ module FileWatch
           next
         end
 
-        inode = [stat.ino, stat.dev_major, stat.dev_minor]
+        if @iswindows
+          fileId = Winhelper.GetWindowsUniqueFileIdentifier(path)
+          inode = [fileId, stat.dev_major, stat.dev_minor]
+        else
+          inode = [stat.ino.to_s, stat.dev_major, stat.dev_minor]
+        end
+		
         if inode != @files[path][:inode]
           @logger.debug("#{path}: old inode was #{@files[path][:inode].inspect}, new is #{inode.inspect}")
           yield(:delete, path)
@@ -142,6 +150,14 @@ module FileWatch
           :inode => [stat.ino, stat.dev_major, stat.dev_minor],
           :create_sent => false,
         }
+		
+		if @iswindows
+          fileId = Winhelper.GetWindowsUniqueFileIdentifier(path)
+          @files[file][:inode] = [fileId, stat.dev_major, stat.dev_minor]
+        else
+          @files[file][:inode] = [stat.ino.to_s, stat.dev_major, stat.dev_minor]
+        end
+		
         if initial
           @files[file][:initial] = true
         end
