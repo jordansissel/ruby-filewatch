@@ -1,6 +1,8 @@
 require "filewatch/buftok"
 require "filewatch/watch"
-require "filewatch/winhelper"
+if RbConfig::CONFIG['host_os'] =~ /mswin|mingw|cygwin/
+  require "filewatch/winhelper"
+end
 require "logger"
 require "rbconfig"
 
