@@ -1,5 +1,7 @@
 require "logger"
-require "filewatch/winhelper"
+if RbConfig::CONFIG['host_os'] =~ /mswin|mingw|cygwin/
+  require "filewatch/winhelper"
+end
 
 module FileWatch
   class Watch
