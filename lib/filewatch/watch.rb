@@ -1,4 +1,5 @@
 require "logger"
+require "time"
 
 module FileWatch
   class Watch
@@ -142,10 +143,16 @@ module FileWatch
           :inode => [stat.ino, stat.dev_major, stat.dev_minor],
           :create_sent => false,
         }
+        if @lmtime and @lmtime > stat.mtime # not new file
+          @files[file][:size] = stat.size
+          @files[file][:create_send] = true
+          @files[file][:initial] = true
+        end
         if initial
           @files[file][:initial] = true
         end
       end
+      @lmtime = Time::now
     end # def _discover_file
 
     public
