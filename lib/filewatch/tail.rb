@@ -33,7 +33,8 @@ module FileWatch
         :stat_interval => 1,
         :discover_interval => 5,
         :exclude => [],
-        :start_new_files_at => :end
+        :start_new_files_at => :end,
+        :ignore_inode_dev => false
       }.merge(opts)
       if !@opts.include?(:sincedb_path)
         @opts[:sincedb_path] = File.join(ENV["HOME"], ".sincedb") if ENV.include?("HOME")
@@ -114,7 +115,11 @@ module FileWatch
       end
 
       stat = File::Stat.new(path)
-      inode = [stat.ino, stat.dev_major, stat.dev_minor]
+      if @opts[:ignore_inode_dev] 
+        inode = [stat.ino, 0, 0]
+      else
+        inode = [stat.ino, stat.dev_major, stat.dev_minor]
+      end
       @statcache[path] = inode
 
       if @sincedb.member?(inode)
