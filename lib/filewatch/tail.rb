@@ -173,7 +173,7 @@ module FileWatch
       changed = false
       loop do
         begin
-          data = @files[path].sysread(4096)
+          data = @files[path].sysread(32768)
           changed = true
           @buffers[path].extract(data).each do |line|
             yield(path, line)
