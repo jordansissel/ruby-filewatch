@@ -37,6 +37,7 @@ module FileWatch
       @sincedb = {}
       @sincedb_last_write = 0
       @statcache = {}
+      @sincedb_write_pending = false
       @opts = {
         :sincedb_write_interval => 10,
         :stat_interval => 1,
@@ -96,6 +97,9 @@ module FileWatch
           @files[path].close
           @files.delete(path)
           @statcache.delete(path)
+        when :noupdate
+          @logger.debug(":noupdate for #{path}, from @files")
+	  _sincedb_write_if_pending   # will check to see if sincedb_write requests are pending 
         else
           @logger.warn("unknown event type #{event} for #{path}")
         end
@@ -186,20 +190,14 @@ module FileWatch
       end
 
       if changed
-        now = Time.now.to_i
-        delta = now - @sincedb_last_write
-        if delta >= @opts[:sincedb_write_interval]
-          @logger.debug("writing sincedb (delta since last write = #{delta})")
-          _sincedb_write
-          @sincedb_last_write = now
-        end
+      	_sincedb_write
       end
     end # def _read_file
 
     public
     def sincedb_write(reason=nil)
       @logger.debug("caller requested sincedb write (#{reason})")
-      _sincedb_write
+      _sincedb_write(true)  # since this is an external request, force the write
     end
 
     private
@@ -222,7 +220,38 @@ module FileWatch
     end # def _sincedb_open
 
     private
-    def _sincedb_write
+    def _sincedb_write_if_pending
+
+      #  Check to see if sincedb should be written out since there was a file read after the sincedb flush, 
+      #  and during the sincedb_write_interval
+
+      if @sincedb_write_pending
+	_sincedb_write
+      end
+    end
+
+    private
+    def _sincedb_write(sincedb_force_write=false)
+
+      # This routine will only write out sincedb if enough time has passed based on @sincedb_write_interval
+      # If it hasn't and we were asked to write, then we are pending a write.
+
+      # if we were called with force == true, then we have to write sincedb and bypass a time check 
+      # ie. external caller calling the public sincedb_write method
+
+      if (!sincedb_force_write)
+         now = Time.now.to_i
+         delta = now - @sincedb_last_write
+
+	 # we will have to flush out the sincedb file after the interval expires.  So, we will try again later.
+         if delta < @opts[:sincedb_write_interval]
+	   @sincedb_write_pending = true
+           return
+         end
+      end
+
+      @logger.debug("writing sincedb (delta since last write = #{delta})")
+
       path = @opts[:sincedb_path]
       tmp = "#{path}.new"
       begin
@@ -242,6 +271,10 @@ module FileWatch
       rescue => e
         @logger.warn("_sincedb_write rename/sync failed: #{tmp} -> #{path}: #{e}")
       end
+
+      @sincedb_last_write = now
+      @sincedb_write_pending = false
+      
     end # def _sincedb_write
 
     public

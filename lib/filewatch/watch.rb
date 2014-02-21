@@ -90,6 +90,11 @@ module FileWatch
         elsif stat.size > @files[path][:size]
           @logger.debug("#{path}: file grew, old size #{@files[path][:size]}, new size #{stat.size}")
           yield(:modify, path)
+	else 
+	  # since there is no update, we should pass control back in case the caller needs to do any work
+          # otherwise, they can ONLY do other work when a file is created or modified
+          @logger.debug("#{path}: nothing to update")
+	  yield(:noupdate, path)
         end
 
         @files[path][:size] = stat.size
