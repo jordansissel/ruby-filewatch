@@ -42,7 +42,8 @@ module FileWatch
         :stat_interval => 1,
         :discover_interval => 5,
         :exclude => [],
-        :start_new_files_at => :end
+        :start_new_files_at => :end,
+        :follow_only_path => false
       }.merge(opts)
       if !@opts.include?(:sincedb_path)
         @opts[:sincedb_path] = File.join(ENV["HOME"], ".sincedb") if ENV.include?("HOME")
@@ -128,13 +129,22 @@ module FileWatch
 
       stat = File::Stat.new(path)
       
-      if @iswindows
-        fileId = Winhelper.GetWindowsUniqueFileIdentifier(path)
-        inode = [fileId, stat.dev_major, stat.dev_minor]
+      if @opts[:follow_only_path]
+        # In cases where files are rsynced to the consuming server, inodes will change when 
+        # updated files overwrite original ones, resulting in inode changes.  In order to 
+        # avoid having the sincedb.member check from failing in this scenario, we'll 
+        # construct the inode key using the path which will be 'stable'
+        inode = [path, stat.dev_major, stat.dev_minor]
       else
-        inode = [stat.ino.to_s, stat.dev_major, stat.dev_minor]
+        if @iswindows
+          fileId = Winhelper.GetWindowsUniqueFileIdentifier(path)
+          inode = [fileId, stat.dev_major, stat.dev_minor]
+        else
+          inode = [stat.ino.to_s, stat.dev_major, stat.dev_minor]
         end
-  
+      end
+
+ 
       @statcache[path] = inode
 
       if @sincedb.member?(inode)
