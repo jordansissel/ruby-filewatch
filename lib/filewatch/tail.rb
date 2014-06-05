@@ -222,7 +222,7 @@ module FileWatch
 
       @logger.debug("_sincedb_open: reading from #{path}")
       db.each do |line|
-        ino, dev_major, dev_minor, pos = line.split(" ", 4)
+        ino, dev_major, dev_minor, pos = line.split("*", 4)
         inode = [ino, dev_major.to_i, dev_minor.to_i]
         @logger.debug("_sincedb_open: setting #{inode.inspect} to #{pos.to_i}")
         @sincedb[inode] = pos.to_i
@@ -272,7 +272,7 @@ module FileWatch
       end
 
       @sincedb.each do |inode, pos|
-        db.puts([inode, pos].flatten.join(" "))
+        db.puts([inode, pos].flatten.join("*"))
       end
       db.close
 
