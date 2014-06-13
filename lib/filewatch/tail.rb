@@ -225,11 +225,7 @@ module FileWatch
       @logger.debug("_sincedb_open: reading from #{path}")
       db.each do |line|
         ino, dev_major, dev_minor, pos = line.split(" ", 4)
-		if @opts[:follow_only_path]
-			inode = [ino, dev_major.to_i, dev_minor.to_i]
-		else
-			inode = [ino.to_i, dev_major.to_i, dev_minor.to_i]
-		end
+        inode = [ino, dev_major.to_i, dev_minor.to_i]
         @logger.debug("_sincedb_open: setting #{inode.inspect} to #{pos.to_i}")
         @sincedb[inode] = pos.to_i
       end
