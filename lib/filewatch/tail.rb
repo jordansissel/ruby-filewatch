@@ -134,7 +134,14 @@ module FileWatch
         # updated files overwrite original ones, resulting in inode changes.  In order to 
         # avoid having the sincedb.member check from failing in this scenario, we'll 
         # construct the inode key using the path which will be 'stable'
-        inode = [path, stat.dev_major, stat.dev_minor]
+        #
+        # Because spaces and carriage returns are valid characters in linux paths, we have
+        # to take precautions to avoid having them show up in the .sincedb where they would
+        # derail any parsing that occurs in _sincedb_open.  Since NULL (\0) is NOT a
+        # valid path character in LINUX (one of the few), we'll replace these troublesome
+        # characters with 'encodings' that won't be encountered in a normal path but will
+        # be handled properly by __sincedb_open
+        inode = [path.gsub(/ /, "\0\0").gsub(/\n/, "\0\1"), stat.dev_major, stat.dev_minor]
       else
         if @iswindows
           fileId = Winhelper.GetWindowsUniqueFileIdentifier(path)
