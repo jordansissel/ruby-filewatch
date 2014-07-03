@@ -78,7 +78,7 @@ module FileWatch
         else
           inode = [stat.ino.to_s, stat.dev_major, stat.dev_minor]
         end
-		
+
         if inode != @files[path][:inode]
           @logger.debug("#{path}: old inode was #{@files[path][:inode].inspect}, new is #{inode.inspect}")
           yield(:delete, path)
@@ -90,11 +90,11 @@ module FileWatch
         elsif stat.size > @files[path][:size]
           @logger.debug("#{path}: file grew, old size #{@files[path][:size]}, new size #{stat.size}")
           yield(:modify, path)
-	else 
-	  # since there is no update, we should pass control back in case the caller needs to do any work
+        else 
+          # since there is no update, we should pass control back in case the caller needs to do any work
           # otherwise, they can ONLY do other work when a file is created or modified
           @logger.debug("#{path}: nothing to update")
-	  yield(:noupdate, path)
+          yield(:noupdate, path)
         end
 
         @files[path][:size] = stat.size
@@ -157,14 +157,14 @@ module FileWatch
           :inode => [stat.ino, stat.dev_major, stat.dev_minor],
           :create_sent => false,
         }
-		
-		if @iswindows
+
+        if @iswindows
           fileId = Winhelper.GetWindowsUniqueFileIdentifier(path)
           @files[file][:inode] = [fileId, stat.dev_major, stat.dev_minor]
         else
           @files[file][:inode] = [stat.ino.to_s, stat.dev_major, stat.dev_minor]
         end
-		
+
         if initial
           @files[file][:initial] = true
         end
