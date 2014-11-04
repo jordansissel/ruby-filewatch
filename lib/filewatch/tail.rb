@@ -1,13 +1,15 @@
 require "filewatch/buftok"
 require "filewatch/watch"
+require "zlib"
+
 if RbConfig::CONFIG['host_os'] =~ /mswin|mingw|cygwin/
   require "filewatch/winhelper"
 end
 require "logger"
 require "rbconfig"
 
-include Java if defined? JRUBY_VERSION
-require "JRubyFileExtension.jar" if defined? JRUBY_VERSION
+#include Java if defined? JRUBY_VERSION
+#require "JRubyFileExtension.jar" if defined? JRUBY_VERSION
 
 module FileWatch
   class Tail
@@ -30,6 +32,7 @@ module FileWatch
         @logger.level = Logger::INFO
       end
       @files = {}
+      @gzip = {}
       @lastwarn = Hash.new { |h, k| h[k] = 0 }
       @buffers = {}
       @watch = FileWatch::Watch.new
@@ -95,6 +98,7 @@ module FileWatch
           _read_file(path, &block)
           @files[path].close
           @files.delete(path)
+          @gzip.delete(path)
           @statcache.delete(path)
         else
           @logger.warn("unknown event type #{event} for #{path}")
@@ -123,6 +127,7 @@ module FileWatch
           @logger.debug("(warn supressed) failed to open #{path}: #{$!}")
         end
         @files.delete(path)
+        @gzip.delete(path)
         return false
       end
 
@@ -133,7 +138,7 @@ module FileWatch
         inode = [fileId, stat.dev_major, stat.dev_minor]
       else
         inode = [stat.ino.to_s, stat.dev_major, stat.dev_minor]
-        end
+      end
   
       @statcache[path] = inode
 
@@ -148,16 +153,29 @@ module FileWatch
           @sincedb[inode] = 0
         end
       elsif event == :create_initial && @files[path]
-        # TODO(sissel): Allow starting at beginning of the file.
-        if @opts[:start_new_files_at] == :beginning
-          @logger.debug("#{path}: initial create, no sincedb, seeking to beginning of file")
+        @gzip[path] = path.end_with?('.gz')
+        if @gzip[path]
+          # RFC1952 two frst byte for gzip file is ID1 ID2 == 31=1f 139=8b
+          @opts[:start_new_files_at] = :beginning # force start to beginning
           @files[path].sysseek(0, IO::SEEK_SET)
+          dataID1 = @files[path].getc.unpack('H*').first
+          dataID2 = @files[path].getc.unpack('H*').first
+          @gzip[path] = dataID1 == "1f" and dataID2 == "8b"
+          @logger.debug("gzip flag #{@gzip[path]} #{dataID1} #{dataID2}")
+          @files[path].rewind
           @sincedb[inode] = 0
-        else 
-          # seek to end
-          @logger.debug("#{path}: initial create, no sincedb, seeking to end #{stat.size}")
-          @files[path].sysseek(stat.size, IO::SEEK_SET)
-          @sincedb[inode] = stat.size
+        else
+          # TODO(sissel): Allow starting at beginning of the file.
+          if @opts[:start_new_files_at] == :beginning
+            @logger.debug("#{path}: initial create, no sincedb, seeking to beginning of file")
+            @files[path].sysseek(0, IO::SEEK_SET)
+            @sincedb[inode] = 0
+          else 
+            # seek to end
+            @logger.debug("#{path}: initial create, no sincedb, seeking to end #{stat.size}")
+            @files[path].sysseek(stat.size, IO::SEEK_SET)
+            @sincedb[inode] = stat.size
+          end
         end
       else
         @logger.debug("#{path}: staying at position 0, no sincedb")
@@ -168,20 +186,44 @@ module FileWatch
 
     private
     def _read_file(path, &block)
-      @buffers[path] ||= FileWatch::BufferedTokenizer.new
+      @logger.debug("_read_file gzip flag is #{@gzip[path]} for path #{path}")
+      if @gzip[path]
+        @buffers[path] ||= Zlib::GzipReader.new(@files[path])
+      else
+        @buffers[path] ||= FileWatch::BufferedTokenizer.new
+      end
 
       changed = false
-      loop do
-        begin
-          data = @files[path].sysread(32768)
-          changed = true
-          @buffers[path].extract(data).each do |line|
-            yield(path, line)
+      if @gzip[path]
+        loop do
+          begin
+            changed = true
+            @buffers[path].each_line do |line|
+              line = line.gsub(/\r?\n$/,'')
+              yield(path, line)
+            end
+            @sincedb[@statcache[path]] = @files[path].pos
+            if @buffers[path].eof?
+              break
+            end
+          rescue Zlib::Error, Zlib::GzipFile::Error => error
+            @logger.warn("Tail error on gz reading : #{error}")
+            break
           end
-
-          @sincedb[@statcache[path]] = @files[path].pos
-        rescue Errno::EWOULDBLOCK, Errno::EINTR, EOFError
-          break
+        end
+      else
+        loop do
+          begin
+            data = @files[path].sysread(32768)
+            changed = true
+            @buffers[path].extract(data).each do |line|
+              yield(path, line)
+            end
+  
+            @sincedb[@statcache[path]] = @files[path].pos
+          rescue Errno::EWOULDBLOCK, Errno::EINTR, EOFError
+            break
+          end
         end
       end
 
