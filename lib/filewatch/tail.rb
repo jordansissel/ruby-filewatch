@@ -141,7 +141,7 @@ module FileWatch
       end
   
       @statcache[path] = inode
-
+      
       if @sincedb.member?(inode)
         last_size = @sincedb[inode]
         @logger.debug("#{path}: sincedb last value #{@sincedb[inode]}, cur size #{stat.size}")
@@ -153,18 +153,8 @@ module FileWatch
           @sincedb[inode] = 0
         end
       elsif event == :create_initial && @files[path]
-        @gzip[path] = path.end_with?('.gz')
-        if @gzip[path]
-          # RFC1952 two frst byte for gzip file is ID1 ID2 == 31=1f 139=8b
-          @opts[:start_new_files_at] = :beginning # force start to beginning
-          @files[path].sysseek(0, IO::SEEK_SET)
-          dataID1 = @files[path].getc.unpack('H*').first
-          dataID2 = @files[path].getc.unpack('H*').first
-          @gzip[path] = dataID1 == "1f" and dataID2 == "8b"
-          @logger.debug("gzip flag #{@gzip[path]} #{dataID1} #{dataID2}")
-          @files[path].rewind
-          @sincedb[inode] = 0
-        else
+        _check_gzip_file(path, inode)
+        if !@gzip[path]
           # TODO(sissel): Allow starting at beginning of the file.
           if @opts[:start_new_files_at] == :beginning
             @logger.debug("#{path}: initial create, no sincedb, seeking to beginning of file")
@@ -178,12 +168,32 @@ module FileWatch
           end
         end
       else
-        @logger.debug("#{path}: staying at position 0, no sincedb")
+        _check_gzip_file(path, inode)
+        if @gzip[path]
+          @logger.debug("#{path}: gzip file")
+        else
+          @logger.debug("#{path}: staying at position 0, no sincedb")
+        end
       end
 
       return true
     end # def _open_file
 
+    private
+    def _check_gzip_file(path, inode)
+      if path.end_with?('.gz')
+        # RFC1952 two first byte for gzip file is ID1 ID2 == 31=1f 139=8b
+        @opts[:start_new_files_at] = :beginning # force start to beginning
+        @files[path].sysseek(0, IO::SEEK_SET)
+        dataID1 = @files[path].getbyte()
+        dataID2 = @files[path].getbyte()
+        @gzip[path] = dataID1 == 31 and dataID2 == 139
+        @logger.debug("gzip flag #{@gzip[path]} #{dataID1} #{dataID2}")
+        @files[path].rewind
+        @sincedb[inode] = 0
+      end
+    end
+    
     private
     def _read_file(path, &block)
       @logger.debug("_read_file gzip flag is #{@gzip[path]} for path #{path}")
