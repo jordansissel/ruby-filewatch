@@ -8,8 +8,8 @@ end
 require "logger"
 require "rbconfig"
 
-#include Java if defined? JRUBY_VERSION
-#require "JRubyFileExtension.jar" if defined? JRUBY_VERSION
+include Java if defined? JRUBY_VERSION
+require "JRubyFileExtension.jar" if defined? JRUBY_VERSION
 
 module FileWatch
   class Tail
