@@ -2,6 +2,8 @@ require "filewatch/buftok"
 require "filewatch/watch"
 if RbConfig::CONFIG['host_os'] =~ /mswin|mingw|cygwin/
   require "filewatch/winhelper"
+elsif RbConfig::CONFIG['host_os'] == "HP-UX"
+  require "filewatch/hpuxhelper"
 end
 require "logger"
 require "rbconfig"
@@ -22,7 +24,8 @@ module FileWatch
     public
     def initialize(opts={})
       @iswindows = ((RbConfig::CONFIG['host_os'] =~ /mswin|mingw|cygwin/) != nil)
-
+      @ishpux = ((RbConfig::CONFIG['host_os'] == "HP-UX") != false)
+      
       if opts[:logger]
         @logger = opts[:logger]
       else
@@ -106,7 +109,7 @@ module FileWatch
     def _open_file(path, event)
       @logger.debug("_open_file: #{path}: opening")
       begin
-        if @iswindows && defined? JRUBY_VERSION
+        if (@iswindows || @ishpux) && defined? JRUBY_VERSION  
             @files[path] = Java::RubyFileExt::getRubyFile(path)
         else
             @files[path] = File.open(path)
@@ -131,9 +134,12 @@ module FileWatch
       if @iswindows
         fileId = Winhelper.GetWindowsUniqueFileIdentifier(path)
         inode = [fileId, stat.dev_major, stat.dev_minor]
+      elsif @ishpux
+        fileInformations = Hpuxhelper.GetHpuxFileInformations(path)
+        inode = [fileInformations.uid, fileInformations.dev_major, fileInformations.dev_minor]
       else
         inode = [stat.ino.to_s, stat.dev_major, stat.dev_minor]
-        end
+      end
   
       @statcache[path] = inode
 

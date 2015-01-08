@@ -1,6 +1,8 @@
 require "logger"
 if RbConfig::CONFIG['host_os'] =~ /mswin|mingw|cygwin/
   require "filewatch/winhelper"
+elsif RbConfig::CONFIG['host_os'] == "HP-UX"
+  require "filewatch/hpuxhelper"
 end
 
 module FileWatch
@@ -10,6 +12,7 @@ module FileWatch
     public
     def initialize(opts={})
       @iswindows = ((RbConfig::CONFIG['host_os'] =~ /mswin|mingw|cygwin/) != nil)
+      @ishpux = ((RbConfig::CONFIG['host_os'] == "HP-UX") != false)
       if opts[:logger]
         @logger = opts[:logger]
       else
@@ -75,6 +78,9 @@ module FileWatch
         if @iswindows
           fileId = Winhelper.GetWindowsUniqueFileIdentifier(path)
           inode = [fileId, stat.dev_major, stat.dev_minor]
+        elsif @ishpux
+          fileInformations = Hpuxhelper.GetHpuxFileInformations(path)
+          inode = [fileInformations.uid, fileInformations.dev_major, fileInformations.dev_minor]
         else
           inode = [stat.ino.to_s, stat.dev_major, stat.dev_minor]
         end
@@ -153,9 +159,12 @@ module FileWatch
           :create_sent => false,
         }
 		
-		if @iswindows
+    		if @iswindows
           fileId = Winhelper.GetWindowsUniqueFileIdentifier(path)
           @files[file][:inode] = [fileId, stat.dev_major, stat.dev_minor]
+        elsif @ishpux
+          fileInformations = Hpuxhelper.GetHpuxFileInformations(path)
+          @files[file][:inode] = [fileInformations.uid, fileInformations.dev_major, fileInformations.dev_minor]
         else
           @files[file][:inode] = [stat.ino.to_s, stat.dev_major, stat.dev_minor]
         end
