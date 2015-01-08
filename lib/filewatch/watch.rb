@@ -10,6 +10,7 @@ module FileWatch
     public
     def initialize(opts={})
       @iswindows = ((RbConfig::CONFIG['host_os'] =~ /mswin|mingw|cygwin/) != nil)
+      @ishpux = ((RbConfig::CONFIG['host_os'] == "HP-UX") != false)
       if opts[:logger]
         @logger = opts[:logger]
       else
@@ -63,7 +64,12 @@ module FileWatch
 
       @files.keys.each do |path|
         begin
+        if @ishpux
+          # do no call Stat method on file
+          # (Ruby ffi does not support HP-UX systems)
+        else
           stat = File::Stat.new(path)
+        end
         rescue Errno::ENOENT
           # file has gone away or we can't read it anymore.
           @files.delete(path)
@@ -75,10 +81,12 @@ module FileWatch
         if @iswindows
           fileId = Winhelper.GetWindowsUniqueFileIdentifier(path)
           inode = [fileId, stat.dev_major, stat.dev_minor]
+        elsif @ishpux
+          inode = [path, 0, 0]
         else
           inode = [stat.ino.to_s, stat.dev_major, stat.dev_minor]
         end
-		
+
         if inode != @files[path][:inode]
           @logger.debug("#{path}: old inode was #{@files[path][:inode].inspect}, new is #{inode.inspect}")
           yield(:delete, path)
@@ -146,20 +154,33 @@ module FileWatch
         end
         next if skip
 
-        stat = File::Stat.new(file)
-        @files[file] = {
-          :size => 0,
-          :inode => [stat.ino, stat.dev_major, stat.dev_minor],
-          :create_sent => false,
-        }
-		
-		if @iswindows
+        if @ishpux
+          # do no call Stat method on file
+          # (Ruby ffi does not support HP-UX systems)
+          @files[file] = {
+            :size => 0,
+            :inode => [path, 0, 0],
+            :create_sent => false,
+          }
+        else
+          stat = File::Stat.new(file)
+          @files[file] = {
+            :size => 0,
+            :inode => [stat.ino, stat.dev_major, stat.dev_minor],
+            :create_sent => false,
+          }
+        end
+
+
+        if @iswindows
           fileId = Winhelper.GetWindowsUniqueFileIdentifier(path)
           @files[file][:inode] = [fileId, stat.dev_major, stat.dev_minor]
+        elsif @ishpux
+          @files[file][:inode] = [path, 0, 0]
         else
           @files[file][:inode] = [stat.ino.to_s, stat.dev_major, stat.dev_minor]
         end
-		
+
         if initial
           @files[file][:initial] = true
         end
