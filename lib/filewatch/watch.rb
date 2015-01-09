@@ -171,7 +171,6 @@ module FileWatch
           }
         end
 
-
         if @iswindows
           fileId = Winhelper.GetWindowsUniqueFileIdentifier(path)
           @files[file][:inode] = [fileId, stat.dev_major, stat.dev_minor]
