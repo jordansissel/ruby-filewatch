@@ -87,18 +87,38 @@ module FileWatch
           inode = [stat.ino.to_s, stat.dev_major, stat.dev_minor]
         end
 
-        if inode != @files[path][:inode]
-          @logger.debug("#{path}: old inode was #{@files[path][:inode].inspect}, new is #{inode.inspect}")
-          yield(:delete, path)
-          yield(:create, path)
-        elsif stat.size < @files[path][:size]
-          @logger.debug("#{path}: file rolled, new size is #{stat.size}, old size #{@files[path][:size]}")
-          yield(:delete, path)
-          yield(:create, path)
-        elsif stat.size > @files[path][:size]
-          @logger.debug("#{path}: file grew, old size #{@files[path][:size]}, new size #{stat.size}")
-          yield(:modify, path)
-        end
+		if @ishpux
+		  @hpuxfilesize
+	      # Open file to get its size
+		  f = File.open(path, mode="r") {|f|
+		    @hpuxfilesize = f.stat.size
+	      }
+		  if inode != @files[path][:inode]
+            @logger.debug("#{path}: old inode was #{@files[path][:inode].inspect}, new is #{inode.inspect}")
+            yield(:delete, path)
+            yield(:create, path)
+          elsif @hpuxfilesize < @files[path][:size]
+            @logger.debug("#{path}: file rolled, new size is #{@hpuxfilesize}, old size #{@files[path][:size]}")
+            yield(:delete, path)
+            yield(:create, path)
+          elsif @hpuxfilesize > @files[path][:size]
+            @logger.debug("#{path}: file grew, old size #{@files[path][:size]}, new size #{@hpuxfilesize}")
+            yield(:modify, path)
+          end
+		else
+          if inode != @files[path][:inode]
+            @logger.debug("#{path}: old inode was #{@files[path][:inode].inspect}, new is #{inode.inspect}")
+            yield(:delete, path)
+            yield(:create, path)
+          elsif stat.size < @files[path][:size]
+            @logger.debug("#{path}: file rolled, new size is #{stat.size}, old size #{@files[path][:size]}")
+            yield(:delete, path)
+            yield(:create, path)
+          elsif stat.size > @files[path][:size]
+            @logger.debug("#{path}: file grew, old size #{@files[path][:size]}, new size #{stat.size}")
+            yield(:modify, path)
+          end
+		end
 
         @files[path][:size] = stat.size
         @files[path][:inode] = inode
@@ -170,7 +190,6 @@ module FileWatch
             :create_sent => false,
           }
         end
-
 
         if @iswindows
           fileId = Winhelper.GetWindowsUniqueFileIdentifier(path)
