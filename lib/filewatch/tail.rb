@@ -2,6 +2,8 @@ require "filewatch/buftok"
 require "filewatch/watch"
 if RbConfig::CONFIG['host_os'] =~ /mswin|mingw|cygwin/
   require "filewatch/winhelper"
+elsif RbConfig::CONFIG['host_os'] == "HP-UX"
+  require "filewatch/hpuxhelper"
 end
 require "logger"
 require "rbconfig"
@@ -127,80 +129,45 @@ module FileWatch
         return false
       end
 
-      if @ishpux
-        # do no call Stat method on file
-        # (Ruby ffi does not support HP-UX systems)
-      else
-        stat = File::Stat.new(path)
-      end
+      stat = File::Stat.new(path)
 
       if @iswindows
         fileId = Winhelper.GetWindowsUniqueFileIdentifier(path)
         inode = [fileId, stat.dev_major, stat.dev_minor]
       elsif @ishpux
-        inode = [path, 0, 0]
+	    fileId = Hpuxhelper.GetHpuxFileInode(path)
+		filesystemMountPoint = Hpuxhelper.GetHpuxFileFilesystemMountPoint(path)
+        inode = [fileId, filesystemMountPoint, 0]
       else
         inode = [stat.ino.to_s, stat.dev_major, stat.dev_minor]
       end
 
       @statcache[path] = inode
 
-	  if @ishpux 
-	    @hpuxfilesize
-	    # Open file to get its size
-		f = File.open(path, mode="r") {|f|
-		  @hpuxfilesize = f.stat.size
-	    }
-	    if @sincedb.member?(inode)
-          last_size = @sincedb[inode]
-          @logger.debug("#{path}: sincedb last value #{@sincedb[inode]}, cur size #{@hpuxfilesize}")
-          if last_size <= @hpuxfilesize
-            @logger.debug("#{path}: sincedb: seeking to #{last_size}")
-            @files[path].sysseek(last_size, IO::SEEK_SET)
-          else
-            @logger.debug("#{path}: last value size is greater than current value, starting over")
-            @sincedb[inode] = 0
-          end
-        elsif event == :create_initial && @files[path]
-          if @opts[:start_new_files_at] == :beginning
-            @logger.debug("#{path}: initial create, no sincedb, seeking to beginning of file")
-            @files[path].sysseek(0, IO::SEEK_SET)
-            @sincedb[inode] = 0
-          else
-            # seek to end
-            @logger.debug("#{path}: initial create, no sincedb, seeking to end #{@hpuxfilesize}")
-            @files[path].sysseek(@hpuxfilesize, IO::SEEK_SET)
-            @sincedb[inode] = @hpuxfilesize
-          end
-        else
-          @logger.debug("#{path}: staying at position 0, no sincedb")
-        end
-	  else 
-        if @sincedb.member?(inode)
-          last_size = @sincedb[inode]
-          @logger.debug("#{path}: sincedb last value #{@sincedb[inode]}, cur size #{stat.size}")
-          if last_size <= stat.size
-            @logger.debug("#{path}: sincedb: seeking to #{last_size}")
-            @files[path].sysseek(last_size, IO::SEEK_SET)
-          else
-            @logger.debug("#{path}: last value size is greater than current value, starting over")
-            @sincedb[inode] = 0
-          end
-        elsif event == :create_initial && @files[path]
-          # TODO(sissel): Allow starting at beginning of the file.
-          if @opts[:start_new_files_at] == :beginning
-            @logger.debug("#{path}: initial create, no sincedb, seeking to beginning of file")
-            @files[path].sysseek(0, IO::SEEK_SET)
-            @sincedb[inode] = 0
-          else
-            # seek to end
-            @logger.debug("#{path}: initial create, no sincedb, seeking to end #{stat.size}")
-            @files[path].sysseek(stat.size, IO::SEEK_SET)
-            @sincedb[inode] = stat.size
-          end
-        else
-          @logger.debug("#{path}: staying at position 0, no sincedb")
-        end
+      if @sincedb.member?(inode)
+	    last_size = @sincedb[inode]
+	    @logger.debug("#{path}: sincedb last value #{@sincedb[inode]}, cur size #{stat.size}")
+	    if last_size <= stat.size
+		  @logger.debug("#{path}: sincedb: seeking to #{last_size}")
+		  @files[path].sysseek(last_size, IO::SEEK_SET)
+	    else
+		  @logger.debug("#{path}: last value size is greater than current value, starting over")
+		  @sincedb[inode] = 0
+	    end
+	  elsif event == :create_initial && @files[path]
+	    # TODO(sissel): Allow starting at beginning of the file.
+	    if @opts[:start_new_files_at] == :beginning
+		  @logger.debug("#{path}: initial create, no sincedb, seeking to beginning of file")
+		  @files[path].sysseek(0, IO::SEEK_SET)
+		  @sincedb[inode] = 0
+	    else
+		  # seek to end
+		  @logger.debug("#{path}: initial create, no sincedb, seeking to end #{stat.size}")
+		  @files[path].sysseek(stat.size, IO::SEEK_SET)
+		  @sincedb[inode] = stat.size
+	    end
+	  else
+	    @logger.debug("#{path}: staying at position 0, no sincedb")
 	  end
 
       return true
@@ -242,86 +209,47 @@ module FileWatch
       _sincedb_write
     end
 
-	if @ishpux
-		private
-		def _sincedb_open
-		  path = @opts[:sincedb_path]
-		  begin
-			  db = File.open(path, mode="r") {|db|
-			    db.each do |line|
-				  ino, dev_major, dev_minor, pos = line.split(" ", 4)
-				  inode = [ino, dev_major.to_i, dev_minor.to_i]
-				  @logger.debug("_sincedb_open: setting #{inode.inspect} to #{pos.to_i}")
-				  @sincedb[inode] = pos.to_i
-			    end
-			  }
-		  rescue
-			@logger.debug("_sincedb_open: #{path}: #{$!}")
-			return
-		  end
-		end # def _sincedb_open
-	else
-		private
-		def _sincedb_open
-		  path = @opts[:sincedb_path]
-		  begin
-			db = File.open(path)
-		  rescue
-			@logger.debug("_sincedb_open: #{path}: #{$!}")
-			return
-		  end
+	private
+	def _sincedb_open
+	  path = @opts[:sincedb_path]
+	  begin
+		db = File.open(path)
+	  rescue
+		@logger.debug("_sincedb_open: #{path}: #{$!}")
+		return
+	  end
 
-		  @logger.debug("_sincedb_open: reading from #{path}")
-		  db.each do |line|
-			ino, dev_major, dev_minor, pos = line.split(" ", 4)
-			inode = [ino, dev_major.to_i, dev_minor.to_i]
-			@logger.debug("_sincedb_open: setting #{inode.inspect} to #{pos.to_i}")
-			@sincedb[inode] = pos.to_i
-		  end
-		end # def _sincedb_open
-	end
+	  @logger.debug("_sincedb_open: reading from #{path}")
+	  db.each do |line|
+		ino, dev_major, dev_minor, pos = line.split(" ", 4)
+		inode = [ino, dev_major.to_i, dev_minor.to_i]
+		@logger.debug("_sincedb_open: setting #{inode.inspect} to #{pos.to_i}")
+		@sincedb[inode] = pos.to_i
+	  end
+	end # def _sincedb_open
 	
-    if @ishpux
-		private
-		def _sincedb_write
-		  path = @opts[:sincedb_path]
-		  tmp = "#{path}.new"
-		  begin
-			db = File.open(path, mode="w") {|db|
-				@sincedb.each do |inode, pos|
-					db.puts([inode, pos].flatten.join(" "))
-				end
-				db.rename(tmp,path)
-			}
-		  rescue => e
-			@logger.warn("_sincedb_write failed: #{tmp}: #{e}")
-			return
-		  end
-		end # def _sincedb_write
-	else 
-		private
-		def _sincedb_write
-		  path = @opts[:sincedb_path]
-		  tmp = "#{path}.new"
-		  begin
-			db = File.open(tmp, "w")
-		  rescue => e
-			@logger.warn("_sincedb_write failed: #{tmp}: #{e}")
-			return
-		  end
+	private
+	def _sincedb_write
+	  path = @opts[:sincedb_path]
+	  tmp = "#{path}.new"
+	  begin
+		db = File.open(tmp, "w")
+	  rescue => e
+		@logger.warn("_sincedb_write failed: #{tmp}: #{e}")
+		return
+	  end
 
-		  @sincedb.each do |inode, pos|
-			db.puts([inode, pos].flatten.join(" "))
-		  end
-		  db.close
+	  @sincedb.each do |inode, pos|
+		db.puts([inode, pos].flatten.join(" "))
+	  end
+	  db.close
 
-		  begin
-			File.rename(tmp, path)
-		  rescue => e
-			@logger.warn("_sincedb_write rename/sync failed: #{tmp} -> #{path}: #{e}")
-		  end
-		end # def _sincedb_write
-    end
+	  begin
+		File.rename(tmp, path)
+	  rescue => e
+		@logger.warn("_sincedb_write rename/sync failed: #{tmp} -> #{path}: #{e}")
+	  end
+	end # def _sincedb_write
 	
     public
     def quit

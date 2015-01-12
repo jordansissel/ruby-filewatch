@@ -1,6 +1,8 @@
 require "logger"
 if RbConfig::CONFIG['host_os'] =~ /mswin|mingw|cygwin/
   require "filewatch/winhelper"
+elsif RbConfig::CONFIG['host_os'] == "HP-UX"
+  require "filewatch/hpuxhelper"
 end
 
 module FileWatch
@@ -64,12 +66,7 @@ module FileWatch
 
       @files.keys.each do |path|
         begin
-        if @ishpux
-          # do no call Stat method on file
-          # (Ruby ffi does not support HP-UX systems)
-        else
           stat = File::Stat.new(path)
-        end
         rescue Errno::ENOENT
           # file has gone away or we can't read it anymore.
           @files.delete(path)
@@ -82,43 +79,25 @@ module FileWatch
           fileId = Winhelper.GetWindowsUniqueFileIdentifier(path)
           inode = [fileId, stat.dev_major, stat.dev_minor]
         elsif @ishpux
-          inode = [path, 0, 0]
+		  fileId = Hpuxhelper.GetHpuxFileInode(path)
+		  filesystemMountPoint = Hpuxhelper.GetHpuxFileFilesystemMountPoint(path)
+          inode = [fileId, filesystemMountPoint, 0]
         else
           inode = [stat.ino.to_s, stat.dev_major, stat.dev_minor]
         end
 
-		if @ishpux
-		  @hpuxfilesize
-	      # Open file to get its size
-		  f = File.open(path, mode="r") {|f|
-		    @hpuxfilesize = f.stat.size
-	      }
-		  if inode != @files[path][:inode]
-            @logger.debug("#{path}: old inode was #{@files[path][:inode].inspect}, new is #{inode.inspect}")
-            yield(:delete, path)
-            yield(:create, path)
-          elsif @hpuxfilesize < @files[path][:size]
-            @logger.debug("#{path}: file rolled, new size is #{@hpuxfilesize}, old size #{@files[path][:size]}")
-            yield(:delete, path)
-            yield(:create, path)
-          elsif @hpuxfilesize > @files[path][:size]
-            @logger.debug("#{path}: file grew, old size #{@files[path][:size]}, new size #{@hpuxfilesize}")
-            yield(:modify, path)
-          end
-		else
-          if inode != @files[path][:inode]
-            @logger.debug("#{path}: old inode was #{@files[path][:inode].inspect}, new is #{inode.inspect}")
-            yield(:delete, path)
-            yield(:create, path)
-          elsif stat.size < @files[path][:size]
-            @logger.debug("#{path}: file rolled, new size is #{stat.size}, old size #{@files[path][:size]}")
-            yield(:delete, path)
-            yield(:create, path)
-          elsif stat.size > @files[path][:size]
-            @logger.debug("#{path}: file grew, old size #{@files[path][:size]}, new size #{stat.size}")
-            yield(:modify, path)
-          end
-		end
+        if inode != @files[path][:inode]
+          @logger.debug("#{path}: old inode was #{@files[path][:inode].inspect}, new is #{inode.inspect}")
+          yield(:delete, path)
+          yield(:create, path)
+        elsif stat.size < @files[path][:size]
+          @logger.debug("#{path}: file rolled, new size is #{stat.size}, old size #{@files[path][:size]}")
+          yield(:delete, path)
+          yield(:create, path)
+        elsif stat.size > @files[path][:size]
+          @logger.debug("#{path}: file grew, old size #{@files[path][:size]}, new size #{stat.size}")
+          yield(:modify, path)
+        end
 
         @files[path][:size] = stat.size
         @files[path][:inode] = inode
@@ -174,31 +153,30 @@ module FileWatch
         end
         next if skip
 
-        if @ishpux
-          # do no call Stat method on file
-          # (Ruby ffi does not support HP-UX systems)
-          @files[file] = {
+        stat = File::Stat.new(file)
+		
+		if @iswindows
+		  fileId = Winhelper.GetWindowsUniqueFileIdentifier(path)
+		  @files[file] = {
             :size => 0,
-            :inode => [path, 0, 0],
+            :inode => [fileId, stat.dev_major, stat.dev_minor],
             :create_sent => false,
           }
-        else
-          stat = File::Stat.new(file)
-          @files[file] = {
+		elsif @ishpux 
+		  fileId = Hpuxhelper.GetHpuxFileInode(path)
+		  filesystemMountPoint = Hpuxhelper.GetHpuxFileFilesystemMountPoint(path)
+		  @files[file] = {
             :size => 0,
-            :inode => [stat.ino, stat.dev_major, stat.dev_minor],
+            :inode => [fileId, filesystemMountPoint, 0],
             :create_sent => false,
           }
-        end
-
-        if @iswindows
-          fileId = Winhelper.GetWindowsUniqueFileIdentifier(path)
-          @files[file][:inode] = [fileId, stat.dev_major, stat.dev_minor]
-        elsif @ishpux
-          @files[file][:inode] = [path, 0, 0]
-        else
-          @files[file][:inode] = [stat.ino.to_s, stat.dev_major, stat.dev_minor]
-        end
+		else
+		  @files[file] = {
+            :size => 0,
+            :inode => [stat.ino.to_s, stat.dev_major, stat.dev_minor],
+            :create_sent => false,
+          }
+		end
 
         if initial
           @files[file][:initial] = true
