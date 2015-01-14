@@ -1,6 +1,8 @@
 require "logger"
 if RbConfig::CONFIG['host_os'] =~ /mswin|mingw|cygwin/
   require "filewatch/winhelper"
+elsif RbConfig::CONFIG['host_os'] == "HP-UX"
+  require "filewatch/hpuxhelper"
 end
 
 module FileWatch
@@ -10,6 +12,7 @@ module FileWatch
     public
     def initialize(opts={})
       @iswindows = ((RbConfig::CONFIG['host_os'] =~ /mswin|mingw|cygwin/) != nil)
+      @ishpux = ((RbConfig::CONFIG['host_os'] == "HP-UX") != false)
       if opts[:logger]
         @logger = opts[:logger]
       else
@@ -75,10 +78,14 @@ module FileWatch
         if @iswindows
           fileId = Winhelper.GetWindowsUniqueFileIdentifier(path)
           inode = [fileId, stat.dev_major, stat.dev_minor]
+        elsif @ishpux
+          fileId = Hpuxhelper.GetHpuxFileInode(path)
+          filesystemMountPoint = Hpuxhelper.GetHpuxFileFilesystemMountPoint(path)
+          inode = [fileId, filesystemMountPoint, 0]
         else
           inode = [stat.ino.to_s, stat.dev_major, stat.dev_minor]
         end
-		
+
         if inode != @files[path][:inode]
           @logger.debug("#{path}: old inode was #{@files[path][:inode].inspect}, new is #{inode.inspect}")
           yield(:delete, path)
@@ -147,19 +154,30 @@ module FileWatch
         next if skip
 
         stat = File::Stat.new(file)
-        @files[file] = {
-          :size => 0,
-          :inode => [stat.ino, stat.dev_major, stat.dev_minor],
-          :create_sent => false,
-        }
-		
-		if @iswindows
+
+        if @iswindows
           fileId = Winhelper.GetWindowsUniqueFileIdentifier(path)
-          @files[file][:inode] = [fileId, stat.dev_major, stat.dev_minor]
+          @files[file] = {
+            :size => 0,
+            :inode => [fileId, stat.dev_major, stat.dev_minor],
+            :create_sent => false,
+          }
+        elsif @ishpux
+          fileId = Hpuxhelper.GetHpuxFileInode(path)
+          filesystemMountPoint = Hpuxhelper.GetHpuxFileFilesystemMountPoint(path)
+          @files[file] = {
+            :size => 0,
+            :inode => [fileId, filesystemMountPoint, 0],
+            :create_sent => false,
+          }
         else
-          @files[file][:inode] = [stat.ino.to_s, stat.dev_major, stat.dev_minor]
+          @files[file] = {
+            :size => 0,
+            :inode => [stat.ino.to_s, stat.dev_major, stat.dev_minor],
+            :create_sent => false,
+          }
         end
-		
+
         if initial
           @files[file][:initial] = true
         end

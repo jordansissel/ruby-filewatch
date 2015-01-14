@@ -2,12 +2,14 @@ require "filewatch/buftok"
 require "filewatch/watch"
 if RbConfig::CONFIG['host_os'] =~ /mswin|mingw|cygwin/
   require "filewatch/winhelper"
+elsif RbConfig::CONFIG['host_os'] == "HP-UX"
+  require "filewatch/hpuxhelper"
 end
 require "logger"
 require "rbconfig"
 
 include Java if defined? JRUBY_VERSION
-require "JRubyFileExtension.jar" if defined? JRUBY_VERSION
+require "java/JRubyFileExtension.jar" if defined? JRUBY_VERSION
 
 module FileWatch
   class Tail
@@ -22,6 +24,7 @@ module FileWatch
     public
     def initialize(opts={})
       @iswindows = ((RbConfig::CONFIG['host_os'] =~ /mswin|mingw|cygwin/) != nil)
+      @ishpux = ((RbConfig::CONFIG['host_os'] == "HP-UX") != false)
 
       if opts[:logger]
         @logger = opts[:logger]
@@ -127,14 +130,18 @@ module FileWatch
       end
 
       stat = File::Stat.new(path)
-      
+
       if @iswindows
         fileId = Winhelper.GetWindowsUniqueFileIdentifier(path)
         inode = [fileId, stat.dev_major, stat.dev_minor]
+      elsif @ishpux
+        fileId = Hpuxhelper.GetHpuxFileInode(path)
+        filesystemMountPoint = Hpuxhelper.GetHpuxFileFilesystemMountPoint(path)
+        inode = [fileId, filesystemMountPoint, 0]
       else
         inode = [stat.ino.to_s, stat.dev_major, stat.dev_minor]
-        end
-  
+      end
+
       @statcache[path] = inode
 
       if @sincedb.member?(inode)
@@ -153,7 +160,7 @@ module FileWatch
           @logger.debug("#{path}: initial create, no sincedb, seeking to beginning of file")
           @files[path].sysseek(0, IO::SEEK_SET)
           @sincedb[inode] = 0
-        else 
+        else
           # seek to end
           @logger.debug("#{path}: initial create, no sincedb, seeking to end #{stat.size}")
           @files[path].sysseek(stat.size, IO::SEEK_SET)
@@ -226,7 +233,7 @@ module FileWatch
       path = @opts[:sincedb_path]
       tmp = "#{path}.new"
       begin
-        db = File.open(tmp, "w")
+        db = File.open(tmp, "w+")
       rescue => e
         @logger.warn("_sincedb_write failed: #{tmp}: #{e}")
         return
