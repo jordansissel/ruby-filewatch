@@ -79,8 +79,8 @@ module FileWatch
           fileId = Winhelper.GetWindowsUniqueFileIdentifier(path)
           inode = [fileId, stat.dev_major, stat.dev_minor]
         elsif @ishpux
-		  fileId = Hpuxhelper.GetHpuxFileInode(path)
-		  filesystemMountPoint = Hpuxhelper.GetHpuxFileFilesystemMountPoint(path)
+          fileId = Hpuxhelper.GetHpuxFileInode(path)
+          filesystemMountPoint = Hpuxhelper.GetHpuxFileFilesystemMountPoint(path)
           inode = [fileId, filesystemMountPoint, 0]
         else
           inode = [stat.ino.to_s, stat.dev_major, stat.dev_minor]
@@ -154,29 +154,29 @@ module FileWatch
         next if skip
 
         stat = File::Stat.new(file)
-		
-		if @iswindows
-		  fileId = Winhelper.GetWindowsUniqueFileIdentifier(path)
-		  @files[file] = {
+
+        if @iswindows
+          fileId = Winhelper.GetWindowsUniqueFileIdentifier(path)
+          @files[file] = {
             :size => 0,
             :inode => [fileId, stat.dev_major, stat.dev_minor],
             :create_sent => false,
           }
-		elsif @ishpux 
-		  fileId = Hpuxhelper.GetHpuxFileInode(path)
-		  filesystemMountPoint = Hpuxhelper.GetHpuxFileFilesystemMountPoint(path)
-		  @files[file] = {
+        elsif @ishpux
+          fileId = Hpuxhelper.GetHpuxFileInode(path)
+          filesystemMountPoint = Hpuxhelper.GetHpuxFileFilesystemMountPoint(path)
+          @files[file] = {
             :size => 0,
             :inode => [fileId, filesystemMountPoint, 0],
             :create_sent => false,
           }
-		else
-		  @files[file] = {
+        else
+          @files[file] = {
             :size => 0,
             :inode => [stat.ino.to_s, stat.dev_major, stat.dev_minor],
             :create_sent => false,
           }
-		end
+        end
 
         if initial
           @files[file][:initial] = true
