@@ -208,6 +208,7 @@ module FileWatch
       begin
         db = File.open(path)
       rescue
+        #No existing sincedb to load
         @logger.debug("_sincedb_open: #{path}: #{$!}")
         return
       end
@@ -219,6 +220,7 @@ module FileWatch
         @logger.debug("_sincedb_open: setting #{inode.inspect} to #{pos.to_i}")
         @sincedb[inode] = pos.to_i
       end
+      db.close
     end # def _sincedb_open
 
     private
