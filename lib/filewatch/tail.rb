@@ -93,8 +93,10 @@ module FileWatch
           end
         when :delete
           @logger.debug? && @logger.debug(":delete for #{path}, deleted from @files")
-          _read_file(path, &block)
-          @files[path].close
+          if @files[path]
+            _read_file(path, &block)
+            @files[path].close
+          end
           @files.delete(path)
           @statcache.delete(path)
         else
