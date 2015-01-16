@@ -219,6 +219,7 @@ module FileWatch
         @logger.debug("_sincedb_open: setting #{inode.inspect} to #{pos.to_i}")
         @sincedb[inode] = pos.to_i
       end
+      db.close
     end # def _sincedb_open
 
     private
