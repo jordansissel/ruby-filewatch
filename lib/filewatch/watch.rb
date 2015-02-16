@@ -67,7 +67,7 @@ module FileWatch
         rescue Errno::ENOENT
           # file has gone away or we can't read it anymore.
           @files.delete(path)
-          @logger.debug("#{path}: stat failed (#{$!}), deleting from @files")
+          @logger.debug? && @logger.debug("#{path}: stat failed (#{$!}), deleting from @files")
           yield(:delete, path)
           next
         end
@@ -80,15 +80,15 @@ module FileWatch
         end
 		
         if inode != @files[path][:inode]
-          @logger.debug("#{path}: old inode was #{@files[path][:inode].inspect}, new is #{inode.inspect}")
+          @logger.debug? && @logger.debug("#{path}: old inode was #{@files[path][:inode].inspect}, new is #{inode.inspect}")
           yield(:delete, path)
           yield(:create, path)
         elsif stat.size < @files[path][:size]
-          @logger.debug("#{path}: file rolled, new size is #{stat.size}, old size #{@files[path][:size]}")
+          @logger.debug? && @logger.debug("#{path}: file rolled, new size is #{stat.size}, old size #{@files[path][:size]}")
           yield(:delete, path)
           yield(:create, path)
         elsif stat.size > @files[path][:size]
-          @logger.debug("#{path}: file grew, old size #{@files[path][:size]}, new size #{stat.size}")
+          @logger.debug? && @logger.debug("#{path}: file grew, old size #{@files[path][:size]}, new size #{stat.size}")
           yield(:modify, path)
         end
 
@@ -124,21 +124,21 @@ module FileWatch
     private
     def _discover_file(path, initial=false)
       globbed_dirs = Dir.glob(path)
-      @logger.debug("_discover_file_glob: #{path}: glob is: #{globbed_dirs}")
+      @logger.debug? && @logger.debug("_discover_file_glob: #{path}: glob is: #{globbed_dirs}")
       if globbed_dirs.empty? && File.file?(path)
         globbed_dirs = [path]
-        @logger.debug("_discover_file_glob: #{path}: glob is: #{globbed_dirs} because glob did not work")
+        @logger.debug? && @logger.debug("_discover_file_glob: #{path}: glob is: #{globbed_dirs} because glob did not work")
       end
       globbed_dirs.each do |file|
         next if @files.member?(file)
         next unless File.file?(file)
 
-        @logger.debug("_discover_file: #{path}: new: #{file} (exclude is #{@exclude.inspect})")
+        @logger.debug? && @logger.debug("_discover_file: #{path}: new: #{file} (exclude is #{@exclude.inspect})")
 
         skip = false
         @exclude.each do |pattern|
           if File.fnmatch?(pattern, File.basename(file))
-            @logger.debug("_discover_file: #{file}: skipping because it " +
+            @logger.debug? && @logger.debug("_discover_file: #{file}: skipping because it " +
                           "matches exclude #{pattern}")
             skip = true
             break

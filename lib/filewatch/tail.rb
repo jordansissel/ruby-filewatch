@@ -75,7 +75,7 @@ module FileWatch
         case event
         when :create, :create_initial
           if @files.member?(path)
-            @logger.debug("#{event} for #{path}: already exists in @files")
+            @logger.debug? && @logger.debug("#{event} for #{path}: already exists in @files")
             next
           end
           if _open_file(path, event)
@@ -83,7 +83,7 @@ module FileWatch
           end
         when :modify
           if !@files.member?(path)
-            @logger.debug(":modify for #{path}, does not exist in @files")
+            @logger.debug? && @logger.debug(":modify for #{path}, does not exist in @files")
             if _open_file(path, event)
               _read_file(path, &block)
             end
@@ -91,7 +91,7 @@ module FileWatch
             _read_file(path, &block)
           end
         when :delete
-          @logger.debug(":delete for #{path}, deleted from @files")
+          @logger.debug? && @logger.debug(":delete for #{path}, deleted from @files")
           _read_file(path, &block)
           @files[path].close
           @files.delete(path)
@@ -104,7 +104,7 @@ module FileWatch
 
     private
     def _open_file(path, event)
-      @logger.debug("_open_file: #{path}: opening")
+      @logger.debug? && @logger.debug("_open_file: #{path}: opening")
       begin
         if @iswindows && defined? JRUBY_VERSION
             @files[path] = Java::RubyFileExt::getRubyFile(path)
@@ -120,7 +120,7 @@ module FileWatch
           @logger.warn("failed to open #{path}: #{$!}")
           @lastwarn[path] = now
         else
-          @logger.debug("(warn supressed) failed to open #{path}: #{$!}")
+          @logger.debug? && @logger.debug("(warn supressed) failed to open #{path}: #{$!}")
         end
         @files.delete(path)
         return false
@@ -139,28 +139,28 @@ module FileWatch
 
       if @sincedb.member?(inode)
         last_size = @sincedb[inode]
-        @logger.debug("#{path}: sincedb last value #{@sincedb[inode]}, cur size #{stat.size}")
+        @logger.debug? && @logger.debug("#{path}: sincedb last value #{@sincedb[inode]}, cur size #{stat.size}")
         if last_size <= stat.size
-          @logger.debug("#{path}: sincedb: seeking to #{last_size}")
+          @logger.debug? && @logger.debug("#{path}: sincedb: seeking to #{last_size}")
           @files[path].sysseek(last_size, IO::SEEK_SET)
         else
-          @logger.debug("#{path}: last value size is greater than current value, starting over")
+          @logger.debug? && @logger.debug("#{path}: last value size is greater than current value, starting over")
           @sincedb[inode] = 0
         end
       elsif event == :create_initial && @files[path]
         # TODO(sissel): Allow starting at beginning of the file.
         if @opts[:start_new_files_at] == :beginning
-          @logger.debug("#{path}: initial create, no sincedb, seeking to beginning of file")
+          @logger.debug? && @logger.debug("#{path}: initial create, no sincedb, seeking to beginning of file")
           @files[path].sysseek(0, IO::SEEK_SET)
           @sincedb[inode] = 0
         else 
           # seek to end
-          @logger.debug("#{path}: initial create, no sincedb, seeking to end #{stat.size}")
+          @logger.debug? && @logger.debug("#{path}: initial create, no sincedb, seeking to end #{stat.size}")
           @files[path].sysseek(stat.size, IO::SEEK_SET)
           @sincedb[inode] = stat.size
         end
       else
-        @logger.debug("#{path}: staying at position 0, no sincedb")
+        @logger.debug? && @logger.debug("#{path}: staying at position 0, no sincedb")
       end
 
       return true
@@ -189,7 +189,7 @@ module FileWatch
         now = Time.now.to_i
         delta = now - @sincedb_last_write
         if delta >= @opts[:sincedb_write_interval]
-          @logger.debug("writing sincedb (delta since last write = #{delta})")
+          @logger.debug? && @logger.debug("writing sincedb (delta since last write = #{delta})")
           _sincedb_write
           @sincedb_last_write = now
         end
@@ -198,7 +198,7 @@ module FileWatch
 
     public
     def sincedb_write(reason=nil)
-      @logger.debug("caller requested sincedb write (#{reason})")
+      @logger.debug? && @logger.debug("caller requested sincedb write (#{reason})")
       _sincedb_write
     end
 
@@ -209,15 +209,15 @@ module FileWatch
         db = File.open(path)
       rescue
         #No existing sincedb to load
-        @logger.debug("_sincedb_open: #{path}: #{$!}")
+        @logger.debug? && @logger.debug("_sincedb_open: #{path}: #{$!}")
         return
       end
 
-      @logger.debug("_sincedb_open: reading from #{path}")
+      @logger.debug? && @logger.debug("_sincedb_open: reading from #{path}")
       db.each do |line|
         ino, dev_major, dev_minor, pos = line.split(" ", 4)
         inode = [ino, dev_major.to_i, dev_minor.to_i]
-        @logger.debug("_sincedb_open: setting #{inode.inspect} to #{pos.to_i}")
+        @logger.debug? && @logger.debug("_sincedb_open: setting #{inode.inspect} to #{pos.to_i}")
         @sincedb[inode] = pos.to_i
       end
       db.close
