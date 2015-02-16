@@ -111,30 +111,30 @@ module FileWatch
         else
             @files[path] = File.open(path)
         end
+
+        stat = File::Stat.new(path)
       rescue
         # don't emit this message too often. if a file that we can't
         # read is changing a lot, we'll try to open it more often,
         # and might be spammy.
         now = Time.now.to_i
         if now - @lastwarn[path] > OPEN_WARN_INTERVAL
-          @logger.warn("failed to open #{path}: #{$!}")
+          @logger.warn("failed to open or stat #{path}: #{$!}")
           @lastwarn[path] = now
         else
-          @logger.debug("(warn supressed) failed to open #{path}: #{$!}")
+          @logger.debug("(warn supressed) failed to open or stat #{path}: #{$!}")
         end
         @files.delete(path)
         return false
       end
 
-      stat = File::Stat.new(path)
-      
       if @iswindows
         fileId = Winhelper.GetWindowsUniqueFileIdentifier(path)
         inode = [fileId, stat.dev_major, stat.dev_minor]
       else
         inode = [stat.ino.to_s, stat.dev_major, stat.dev_minor]
-        end
-  
+      end
+
       @statcache[path] = inode
 
       if @sincedb.member?(inode)
@@ -153,7 +153,7 @@ module FileWatch
           @logger.debug("#{path}: initial create, no sincedb, seeking to beginning of file")
           @files[path].sysseek(0, IO::SEEK_SET)
           @sincedb[inode] = 0
-        else 
+        else
           # seek to end
           @logger.debug("#{path}: initial create, no sincedb, seeking to end #{stat.size}")
           @files[path].sysseek(stat.size, IO::SEEK_SET)
