@@ -42,7 +42,8 @@ module FileWatch
         :stat_interval => 1,
         :discover_interval => 5,
         :exclude => [],
-        :start_new_files_at => :end
+        :start_new_files_at => :end,
+        :delimiter => "\n"
       }.merge(opts)
       if !@opts.include?(:sincedb_path)
         @opts[:sincedb_path] = File.join(ENV["HOME"], ".sincedb") if ENV.include?("HOME")
@@ -168,7 +169,7 @@ module FileWatch
 
     private
     def _read_file(path, &block)
-      @buffers[path] ||= FileWatch::BufferedTokenizer.new
+      @buffers[path] ||= FileWatch::BufferedTokenizer.new(@opts[:delimiter])
 
       changed = false
       loop do
