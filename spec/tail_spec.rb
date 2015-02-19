@@ -3,8 +3,8 @@ require 'stud/temporary'
 
 describe FileWatch::Tail do
 
-  let(:file_path) { f = Stud::Temporary.file ; f.close; f.path }
-  let(:sincedb_path) { Stud::Temporary.file.path }
+  let(:file_path) { f = Stud::Temporary.pathname }
+  let(:sincedb_path) { Stud::Temporary.pathname }
 
   before :each do
     Thread.new(subject) { sleep 0.5; subject.quit } # force the subscribe loop to exit
