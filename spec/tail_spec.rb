@@ -14,7 +14,7 @@ describe FileWatch::Tail do
     subject { FileWatch::Tail.new(:sincedb_path => sincedb_path, :start_new_files_at => :beginning) }
 
     before :each do
-      File.open(file_path, "w") { |file|  file.write("line1\nline2\n") }
+      File.open(file_path, "wb") { |file|  file.write("line1\nline2\n") }
       subject.tail(file_path)
     end
 
@@ -29,7 +29,7 @@ describe FileWatch::Tail do
                                   :delimiter => "\r\n") }
 
     before :each do
-      File.open(file_path, "w") { |file|  file.write("line1\r\nline2\r\n") }
+      File.open(file_path, "wb") { |file|  file.write("line1\r\nline2\r\n") }
       subject.tail(file_path)
     end
 
