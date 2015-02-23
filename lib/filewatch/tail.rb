@@ -103,7 +103,14 @@ module FileWatch
           @logger.warn("unknown event type #{event} for #{path}")
         end
       end # @watch.subscribe
-    end # def each
+    end # def subscribe
+
+    public
+    def sincedb_record_uid(path, stat)
+      inode = @watch.inode(path,stat)
+      @statcache[path] = inode
+      return inode
+    end # def sincedb_record_uid
 
     private
     def _open_file(path, event)
@@ -130,37 +137,28 @@ module FileWatch
       end
 
       stat = File::Stat.new(path)
-      
-      if @iswindows
-        fileId = Winhelper.GetWindowsUniqueFileIdentifier(path)
-        inode = [fileId, stat.dev_major, stat.dev_minor]
-      else
-        inode = [stat.ino.to_s, stat.dev_major, stat.dev_minor]
-        end
-  
-      @statcache[path] = inode
+      sincedb_record_uid = sincedb_record_uid(path, stat)
 
-      if @sincedb.member?(inode)
-        last_size = @sincedb[inode]
-        @logger.debug? && @logger.debug("#{path}: sincedb last value #{@sincedb[inode]}, cur size #{stat.size}")
+      if @sincedb.member?(sincedb_record_uid)
+        last_size = @sincedb[sincedb_record_uid]
+        @logger.debug? && @logger.debug("#{path}: sincedb last value #{@sincedb[sincedb_record_uid]}, cur size #{stat.size}")
         if last_size <= stat.size
           @logger.debug? && @logger.debug("#{path}: sincedb: seeking to #{last_size}")
           @files[path].sysseek(last_size, IO::SEEK_SET)
         else
           @logger.debug? && @logger.debug("#{path}: last value size is greater than current value, starting over")
-          @sincedb[inode] = 0
+          @sincedb[sincedb_record_uid] = 0
         end
       elsif event == :create_initial && @files[path]
-        # TODO(sissel): Allow starting at beginning of the file.
         if @opts[:start_new_files_at] == :beginning
           @logger.debug? && @logger.debug("#{path}: initial create, no sincedb, seeking to beginning of file")
           @files[path].sysseek(0, IO::SEEK_SET)
-          @sincedb[inode] = 0
+          @sincedb[sincedb_record_uid] = 0
         else 
           # seek to end
           @logger.debug? && @logger.debug("#{path}: initial create, no sincedb, seeking to end #{stat.size}")
           @files[path].sysseek(stat.size, IO::SEEK_SET)
-          @sincedb[inode] = stat.size
+          @sincedb[sincedb_record_uid] = stat.size
         end
       else
         @logger.debug? && @logger.debug("#{path}: staying at position 0, no sincedb")
@@ -172,7 +170,6 @@ module FileWatch
     private
     def _read_file(path, &block)
       @buffers[path] ||= FileWatch::BufferedTokenizer.new(@opts[:delimiter])
-
       changed = false
       loop do
         begin
@@ -219,9 +216,9 @@ module FileWatch
       @logger.debug? && @logger.debug("_sincedb_open: reading from #{path}")
       db.each do |line|
         ino, dev_major, dev_minor, pos = line.split(" ", 4)
-        inode = [ino, dev_major.to_i, dev_minor.to_i]
-        @logger.debug? && @logger.debug("_sincedb_open: setting #{inode.inspect} to #{pos.to_i}")
-        @sincedb[inode] = pos.to_i
+        sincedb_record_uid = [ino, dev_major.to_i, dev_minor.to_i]
+        @logger.debug? && @logger.debug("_sincedb_open: setting #{sincedb_record_uid.inspect} to #{pos.to_i}")
+        @sincedb[sincedb_record_uid] = pos.to_i
       end
       db.close
     end # def _sincedb_open
@@ -237,8 +234,8 @@ module FileWatch
         return
       end
 
-      @sincedb.each do |inode, pos|
-        db.puts([inode, pos].flatten.join(" "))
+      @sincedb.each do |sincedb_record_uid, pos|
+        db.puts([sincedb_record_uid, pos].flatten.join(" "))
       end
       db.close
 

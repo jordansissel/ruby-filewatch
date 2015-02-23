@@ -39,7 +39,18 @@ module FileWatch
       end
 
       return true
-    end # def tail
+    end # def watch
+
+    public
+    def inode(path,stat)
+      if @iswindows
+        fileId = Winhelper.GetWindowsUniqueFileIdentifier(path)
+        inode = [fileId, stat.dev_major, stat.dev_minor]
+      else
+        inode = [stat.ino.to_s, stat.dev_major, stat.dev_minor]
+      end
+      return inode
+    end
 
     # Calls &block with params [event_type, path]
     # event_type can be one of:
@@ -72,13 +83,7 @@ module FileWatch
           next
         end
 
-        if @iswindows
-          fileId = Winhelper.GetWindowsUniqueFileIdentifier(path)
-          inode = [fileId, stat.dev_major, stat.dev_minor]
-        else
-          inode = [stat.ino.to_s, stat.dev_major, stat.dev_minor]
-        end
-		
+        inode = inode(path,stat)
         if inode != @files[path][:inode]
           @logger.debug? && @logger.debug("#{path}: old inode was #{@files[path][:inode].inspect}, new is #{inode.inspect}")
           yield(:delete, path)
@@ -149,20 +154,10 @@ module FileWatch
         stat = File::Stat.new(file)
         @files[file] = {
           :size => 0,
-          :inode => [stat.ino, stat.dev_major, stat.dev_minor],
+          :inode => inode(file,stat),
           :create_sent => false,
+          :initial => initial
         }
-		
-		if @iswindows
-          fileId = Winhelper.GetWindowsUniqueFileIdentifier(file)
-          @files[file][:inode] = [fileId, stat.dev_major, stat.dev_minor]
-        else
-          @files[file][:inode] = [stat.ino.to_s, stat.dev_major, stat.dev_minor]
-        end
-		
-        if initial
-          @files[file][:initial] = true
-        end
       end
     end # def _discover_file
 

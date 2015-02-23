@@ -52,5 +52,32 @@ describe FileWatch::Tail do
       expect { subject.subscribe {|p,l| } }.to_not raise_exception
     end
   end
+
+  context "when writting sincedb" do
+    subject { FileWatch::Tail.new(:sincedb_path => sincedb_path, :start_new_files_at => :beginning, :stat_interval => 0) }
+
+    before :each do
+      File.open(file_path, "wb") { |file|  file.write("line1\nline2\n") }
+      subject.tail(file_path)
+    end
+
+    it "reads new lines off the file" do
+      expect { |b| subject.subscribe(&b) }.to yield_successive_args([file_path, "line1"], [file_path, "line2"])
+      #SinceDB is written after first read
+      stat = File::Stat.new(file_path)
+      sincedb_id = subject.sincedb_record_uid(file_path,stat).join(' ')
+      expect(File.read(sincedb_path)).to eq("#{sincedb_id} #{stat.size}\n")
+      #restart
+      File.open(file_path, "ab") { |file|  file.write("line3\nline4\n") }
+      subject.tail(file_path)
+      Thread.new(subject) { sleep 0.5; subject.sincedb_write; subject.quit }
+      expect { |b| subject.subscribe(&b) }.to yield_successive_args([file_path, "line3"], [file_path, "line4"])
+      #SinceDB is written at exit as requested
+      sleep 1
+      stat = File::Stat.new(file_path)
+      sincedb_id = subject.sincedb_record_uid(file_path,stat).join(' ')
+      expect(File.read(sincedb_path)).to eq("#{sincedb_id} #{stat.size}\n")
+    end
+  end
 end
 
