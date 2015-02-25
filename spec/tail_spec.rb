@@ -70,9 +70,9 @@ describe FileWatch::Tail do
       #restart
       File.open(file_path, "ab") { |file|  file.write("line3\nline4\n") }
       subject.tail(file_path)
-      Thread.new(subject) { sleep 0.5; subject.sincedb_write; subject.quit }
+      Thread.new(subject) { sleep 0.5; subject.quit }
       expect { |b| subject.subscribe(&b) }.to yield_successive_args([file_path, "line3"], [file_path, "line4"])
-      #SinceDB is written at exit as requested
+      #SinceDB is written at exit
       sleep 1
       stat = File::Stat.new(file_path)
       sincedb_id = subject.sincedb_record_uid(file_path,stat).join(' ')

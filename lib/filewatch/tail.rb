@@ -248,6 +248,7 @@ module FileWatch
 
     public
     def quit
+      _sincedb_write
       @watch.quit
     end # def quit
   end # class Tail
