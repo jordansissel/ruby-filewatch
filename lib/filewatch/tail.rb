@@ -136,7 +136,7 @@ module FileWatch
         inode = [fileId, stat.dev_major, stat.dev_minor]
       else
         inode = [stat.ino.to_s, stat.dev_major, stat.dev_minor]
-        end
+      end
   
       @statcache[path] = inode
 
@@ -183,7 +183,12 @@ module FileWatch
           end
 
           @sincedb[@statcache[path]] = @files[path].pos
-        rescue Errno::EWOULDBLOCK, Errno::EINTR, EOFError
+        rescue EOFError
+          #update sincedb on EOF
+          _sincedb_write
+	  changed = false
+          break
+        rescue Errno::EWOULDBLOCK, Errno::EINTR
           break
         end
       end
