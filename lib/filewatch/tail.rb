@@ -100,7 +100,7 @@ module FileWatch
           end
           @files.delete(path)
           inode = @statcache.delete(path)
-          @sincedb[inode] = 0
+          @sincedb.delete(inode)
         else
           @logger.warn("unknown event type #{event} for #{path}")
         end
