@@ -11,7 +11,7 @@ describe FileWatch::Tail do
   end
 
   context "when watching a file" do
-    subject { FileWatch::Tail.new(:sincedb_path => sincedb_path, :start_new_files_at => :beginning) }
+    subject { FileWatch::Tail.new(:sincedb_path => sincedb_path, :start_new_files_at => :beginning, :stat_interval => 0) }
 
     before :each do
       File.open(file_path, "wb") { |file|  file.write("line1\nline2\n") }
@@ -20,6 +20,23 @@ describe FileWatch::Tail do
 
     it "reads new lines off the file" do
       expect { |b| subject.subscribe(&b) }.to yield_successive_args([file_path, "line1"], [file_path, "line2"])
+    end
+
+    context "when file is deleted" do
+      # retrieve the file inode before it is deleted
+      let!(:sincedb_id) { subject.sincedb_record_uid(file_path,File::Stat.new(file_path)) }
+
+      before :each do
+        File.open(file_path, "ab") { |file|  file.write("line3\n") }
+        Thread.new(subject) { sleep 0.2; File.unlink(file_path) }
+      end
+
+      it "remove related record from in-memory sincedb" do
+        expect { |b| subject.subscribe(&b) }.to yield_successive_args([file_path, "line1"], [file_path, "line2"],[file_path, "line3"])
+        #rspec var scoping requires this
+        local_sincedb_id = sincedb_id
+        expect(subject.instance_eval { @sincedb.member?(local_sincedb_id)}).to eq(false)
+      end
     end
   end
 
