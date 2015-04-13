@@ -62,4 +62,8 @@ class File
   def self.rand_filename(prefix)
     [ prefix, Thread.current.object_id, Process.pid, rand(1000000) ].join('.')
   end
+
+  def self.device?(file_name)
+    chardev?(file_name) || blockdev?(file_name)
+  end
 end

@@ -227,11 +227,10 @@ module FileWatch
     private
     def _sincedb_write
       path = @opts[:sincedb_path]
-      return if path == "/dev/null"
-      File.atomic_write(path) do |file|
-        @sincedb.each do |inode, pos|
-          file.puts([inode, pos].flatten.join(" "))
-        end
+      if File.device?(path)
+        IO.write(path, serialize_sincedb, 0)
+      else
+        File.atomic_write(path) {|file| file.write(serialize_sincedb) }
       end
     end # def _sincedb_write
 
@@ -240,5 +239,12 @@ module FileWatch
       _sincedb_write
       @watch.quit
     end # def quit
+
+    private
+    def serialize_sincedb
+      @sincedb.map do |inode, pos|
+        [inode, pos].flatten.join(" ")
+      end.join("\n") + "\n"
+    end
   end # class Tail
 end # module FileWatch
