@@ -56,7 +56,7 @@ class File
   rescue
     # ...
   ensure
-    FileUtils.rm_f(file_name) if file_name
+    FileUtils.rm_f(file_name) if File.exist?(file_name)
   end
 
   def self.rand_filename(prefix)
