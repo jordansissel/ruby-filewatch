@@ -1,3 +1,4 @@
+require "filewatch/helper"
 require "filewatch/buftok"
 require "filewatch/watch"
 if RbConfig::CONFIG['host_os'] =~ /mswin|mingw|cygwin/
@@ -226,23 +227,10 @@ module FileWatch
     private
     def _sincedb_write
       path = @opts[:sincedb_path]
-      tmp = "#{path}.new"
-      begin
-        db = File.open(tmp, "w")
-      rescue => e
-        @logger.warn("_sincedb_write failed: #{tmp}: #{e}")
-        return
-      end
-
-      @sincedb.each do |sincedb_record_uid, pos|
-        db.puts([sincedb_record_uid, pos].flatten.join(" "))
-      end
-      db.close
-
-      begin
-        File.rename(tmp, path)
-      rescue => e
-        @logger.warn("_sincedb_write rename/sync failed: #{tmp} -> #{path}: #{e}")
+      if File.device?(path)
+        IO.write(path, serialize_sincedb, 0)
+      else
+        File.atomic_write(path) {|file| file.write(serialize_sincedb) }
       end
     end # def _sincedb_write
 
@@ -251,5 +239,12 @@ module FileWatch
       _sincedb_write
       @watch.quit
     end # def quit
+
+    private
+    def serialize_sincedb
+      @sincedb.map do |inode, pos|
+        [inode, pos].flatten.join(" ")
+      end.join("\n") + "\n"
+    end
   end # class Tail
 end # module FileWatch
