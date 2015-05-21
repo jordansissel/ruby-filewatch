@@ -171,6 +171,7 @@ module FileWatch
     private
     def _read_file(path, &block)
       @buffers[path] ||= FileWatch::BufferedTokenizer.new(@opts[:delimiter])
+      delimiter_byte_size = @opts[:delimiter].bytesize
       changed = false
       loop do
         begin
@@ -178,9 +179,8 @@ module FileWatch
           changed = true
           @buffers[path].extract(data).each do |line|
             yield(path, line)
+            @sincedb[@statcache[path]] += (line.bytesize + delimiter_byte_size)
           end
-
-          @sincedb[@statcache[path]] = @files[path].pos
         rescue Errno::EWOULDBLOCK, Errno::EINTR, EOFError
           break
         end

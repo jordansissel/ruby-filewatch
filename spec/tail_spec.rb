@@ -92,5 +92,39 @@ describe FileWatch::Tail do
       end
     end
   end
+
+  context "ingesting files bigger than 32k" do
+    let(:lineA) { "a" * 12000 }
+    let(:lineB) { "b" * 25000 }
+    let(:lineC) { "c" * 8000 }
+    subject { FileWatch::Tail.new(:sincedb_path => sincedb_path, :start_new_files_at => :beginning) }
+
+    before :each do
+      IO.write(file_path, "#{lineA}\n#{lineB}\n#{lineC}\n")
+    end
+
+    context "when restarting after stopping at the first line" do
+
+      let(:new_subject) { FileWatch::Tail.new(:sincedb_path => sincedb_path, :start_new_files_at => :beginning) }
+
+      before :each do
+        subject.tail(file_path)
+        subject.subscribe {|f, l| break if @test; @test = 1}
+        subject.sincedb_write
+        subject.quit
+        Thread.new(new_subject) { sleep 0.5; new_subject.quit } # force the subscribe loop to exit
+      end
+
+      it "should store in sincedb the position up until the first string" do
+        device, dev_major, dev_minor, pos = *IO.read(sincedb_path).split(" ").map {|n| n.to_i }
+        expect(pos).to eq(12001) # string.bytesize + "\n".bytesize
+      end
+
+      it "should read the second and third lines entirely" do
+        new_subject.tail(file_path) # re-tail file
+        expect { |b| new_subject.subscribe(&b) }.to yield_successive_args([file_path, lineB], [file_path, lineC])
+      end
+    end
+  end
 end
 
