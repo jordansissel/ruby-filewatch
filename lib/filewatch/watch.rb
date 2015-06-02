@@ -183,7 +183,6 @@ module FileWatch
           :create_sent => false,
           :initial => initial
         }
-        end
       end
     end # def _discover_file
 
