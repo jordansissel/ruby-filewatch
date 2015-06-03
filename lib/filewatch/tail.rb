@@ -37,7 +37,7 @@ module FileWatch
       @watch.logger = @logger
       @sincedb = {}
       @sincedb_last_write = Time.now.to_i
-      @sincedb_write_pending = false
+      @sincedb_write_pending = true
       @sincedb_writing = false
       @statcache = {}
       @opts = {
@@ -171,6 +171,7 @@ module FileWatch
         end
       else
         @logger.debug? && @logger.debug("#{path}: staying at position 0, no sincedb")
+        @sincedb[sincedb_record_uid] = 0
       end
 
       return true
@@ -274,6 +275,7 @@ module FileWatch
           IO.write(path, serialize_sincedb, 0)
         else
           File.atomic_write(path) {|file| file.write(serialize_sincedb) }
+        end
       rescue => e
         @logger.warn("_sincedb_write failed: #{tmp}: #{e}")
         @sincedb_writing = false
@@ -289,7 +291,7 @@ module FileWatch
 
     public
     def quit
-      _sincedb_write(true
+      _sincedb_write(true)
       @watch.quit
     end # def quit
 
