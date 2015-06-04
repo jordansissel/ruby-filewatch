@@ -291,8 +291,8 @@ module FileWatch
 
     public
     def quit
-      _sincedb_write(true)
       @watch.quit
+      _sincedb_write(true)
     end # def quit
 
     private
