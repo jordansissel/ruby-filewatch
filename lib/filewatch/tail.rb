@@ -162,6 +162,8 @@ module FileWatch
           @files[path].sysseek(stat.size, IO::SEEK_SET)
           @sincedb[sincedb_record_uid] = stat.size
         end
+      elsif event == :create && @files[path]
+        @sincedb[sincedb_record_uid] = 0
       else
         @logger.debug? && @logger.debug("#{path}: staying at position 0, no sincedb")
       end

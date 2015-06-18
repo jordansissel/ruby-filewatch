@@ -10,6 +10,19 @@ describe FileWatch::Tail do
     Thread.new(subject) { sleep 0.5; subject.quit } # force the subscribe loop to exit
   end
 
+  context "when watching a new file" do
+    subject { FileWatch::Tail.new(:sincedb_path => sincedb_path, :start_new_files_at => :beginning, :stat_interval => 0) }
+
+    before :each do
+      subject.tail(file_path)
+      File.open(file_path, "wb") { |file|  file.write("line1\nline2\n") }
+    end
+
+    it "reads new lines off the file" do
+      expect { |b| subject.subscribe(&b) }.to yield_successive_args([file_path, "line1"], [file_path, "line2"])
+    end
+  end
+
   context "when watching a file" do
     subject { FileWatch::Tail.new(:sincedb_path => sincedb_path, :start_new_files_at => :beginning, :stat_interval => 0) }
 
