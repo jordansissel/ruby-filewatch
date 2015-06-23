@@ -36,7 +36,9 @@ module FileWatch
       @watch = FileWatch::Watch.new
       @watch.logger = @logger
       @sincedb = {}
-      @sincedb_last_write = 0
+      @sincedb_last_write = Time.now.to_i
+      @sincedb_write_pending = true
+      @sincedb_writing = false
       @statcache = {}
       @opts = {
         :sincedb_write_interval => 10,
@@ -44,6 +46,7 @@ module FileWatch
         :discover_interval => 5,
         :exclude => [],
         :start_new_files_at => :end,
+        :follow_only_path => false,
         :delimiter => "\n"
       }.merge(opts)
       if !@opts.include?(:sincedb_path)
@@ -53,6 +56,7 @@ module FileWatch
       if !@opts.include?(:sincedb_path)
         raise NoSinceDBPathGiven.new("No HOME or SINCEDB_PATH set in environment. I need one of these set so I can keep track of the files I am following.")
       end
+      @watch.follow_only_path = @opts[:follow_only_path]
       @watch.exclude(@opts[:exclude])
 
       _sincedb_open
@@ -101,6 +105,9 @@ module FileWatch
           @files.delete(path)
           inode = @statcache.delete(path)
           @sincedb.delete(inode)
+        when :noupdate
+          @logger.debug? && @logger.debug(":noupdate for #{path}, from @files")
+          _sincedb_write_if_pending   # will check to see if sincedb_write requests are pending 
         else
           @logger.warn("unknown event type #{event} for #{path}")
         end
@@ -129,7 +136,7 @@ module FileWatch
         # and might be spammy.
         now = Time.now.to_i
         if now - @lastwarn[path] > OPEN_WARN_INTERVAL
-          @logger.warn("failed to open #{path}: #{$!}")
+          @logger.warn? && @logger.warn("failed to open #{path}: #{$!}")
           @lastwarn[path] = now
         else
           @logger.debug? && @logger.debug("(warn supressed) failed to open #{path}: #{$!}")
@@ -166,6 +173,7 @@ module FileWatch
         @sincedb[sincedb_record_uid] = 0
       else
         @logger.debug? && @logger.debug("#{path}: staying at position 0, no sincedb")
+        @sincedb[sincedb_record_uid] = 0
       end
 
       return true
@@ -190,20 +198,14 @@ module FileWatch
       end
 
       if changed
-        now = Time.now.to_i
-        delta = now - @sincedb_last_write
-        if delta >= @opts[:sincedb_write_interval]
-          @logger.debug? && @logger.debug("writing sincedb (delta since last write = #{delta})")
-          _sincedb_write
-          @sincedb_last_write = now
-        end
+        _sincedb_write
       end
     end # def _read_file
 
     public
     def sincedb_write(reason=nil)
       @logger.debug? && @logger.debug("caller requested sincedb write (#{reason})")
-      _sincedb_write
+      _sincedb_write(true)  # since this is an external request, force the write
     end
 
     private
@@ -220,6 +222,7 @@ module FileWatch
       @logger.debug? && @logger.debug("_sincedb_open: reading from #{path}")
       db.each do |line|
         ino, dev_major, dev_minor, pos = line.split(" ", 4)
+        inode = [ino, dev_major.to_i, dev_minor.to_i]
         sincedb_record_uid = [ino, dev_major.to_i, dev_minor.to_i]
         @logger.debug? && @logger.debug("_sincedb_open: setting #{sincedb_record_uid.inspect} to #{pos.to_i}")
         @sincedb[sincedb_record_uid] = pos.to_i
@@ -228,19 +231,70 @@ module FileWatch
     end # def _sincedb_open
 
     private
-    def _sincedb_write
-      path = @opts[:sincedb_path]
-      if File.device?(path)
-        IO.write(path, serialize_sincedb, 0)
-      else
-        File.atomic_write(path) {|file| file.write(serialize_sincedb) }
+    def _sincedb_write_if_pending
+
+      #  Check to see if sincedb should be written out since there was a file read after the sincedb flush, 
+      #  and during the sincedb_write_interval
+
+      if @sincedb_write_pending
+        _sincedb_write
       end
+    end
+
+    private
+    def _sincedb_write(sincedb_force_write=false)
+
+      # This routine will only write out sincedb if enough time has passed based on @sincedb_write_interval
+      # If it hasn't and we were asked to write, then we are pending a write.
+
+      # if we were called with force == true, then we have to write sincedb and bypass a time check 
+      # ie. external caller calling the public sincedb_write method
+
+      if(@sincedb_writing)
+        @logger.warn? && @logger.warn("_sincedb_write already writing")
+        return
+      end
+
+      @sincedb_writing = true
+
+      if (!sincedb_force_write)
+         now = Time.now.to_i
+         delta = now - @sincedb_last_write
+
+         # we will have to flush out the sincedb file after the interval expires.  So, we will try again later.
+         if delta < @opts[:sincedb_write_interval]
+           @sincedb_write_pending = true
+           @sincedb_writing = false
+           return
+         end
+      end
+
+      @logger.debug? && @logger.debug("writing sincedb (delta since last write = #{delta})")
+
+      path = @opts[:sincedb_path]
+      begin
+        if File.device?(path)
+          IO.write(path, serialize_sincedb, 0)
+        else
+          File.atomic_write(path) {|file| file.write(serialize_sincedb) }
+        end
+      rescue => e
+        @logger.warn("_sincedb_write failed: #{tmp}: #{e}")
+        @sincedb_writing = false
+        return
+      end
+
+      @sincedb_last_write = now
+      @sincedb_write_pending = false
+      @sincedb_writing = false
+
+      System.gc()
     end # def _sincedb_write
 
     public
     def quit
-      _sincedb_write
       @watch.quit
+      _sincedb_write(true)
     end # def quit
 
     private
