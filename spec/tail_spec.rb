@@ -144,14 +144,14 @@ describe FileWatch::Tail do
   context "when watching a directory" do
 
     let(:directory) { Stud::Temporary.directory }
-    let(:file_path) { directory + "/1.log" }
+    let(:file_path) { File.join(directory, "1.log") }
     let(:position) { :beginning }
 
     subject { FileWatch::Tail.new(:sincedb_path => sincedb_path, :start_new_files_at => position, :stat_interval => 0) }
 
     before :each do
       File.open(file_path, "wb") { |file|  file.write("line1\nline2\n") }
-      subject.tail(directory + "/*")
+      subject.tail(File.join(directory, "*"))
     end
 
     after :each do
@@ -170,7 +170,7 @@ describe FileWatch::Tail do
       end
 
       it "should not re-read the file" do
-        Thread.new(subject) {|s| sleep 1; s.quit }
+        Thread.new(subject) { |s| sleep 1; s.quit }
         expect { |b| subject.subscribe(&b) }.not_to yield_control
       end
     end
