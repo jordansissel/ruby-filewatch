@@ -52,17 +52,21 @@ module FileWatch
         fileId = Winhelper.GetWindowsUniqueFileIdentifier(path)
         inode = [fileId, stat.dev_major, stat.dev_minor]
       elsif @xattr
-        xattr = Xattr.new(path)
+        begin
+          xattr = Xattr.new(path)
 
-        fileId = xattr[@xattr]
+          fileId = xattr[@xattr]
 
-        if !fileId
-          fileId = @uuid.generate
+          if !fileId
+            fileId = @uuid.generate
 
-          xattr[@xattr] = fileId
+            xattr[@xattr] = fileId
+          end
+
+          inode = [fileId, stat.dev_major, stat.dev_minor]
+        rescue
+          inode = [stat.ino.to_s, stat.dev_major, stat.dev_minor]
         end
-
-        inode = [fileId, stat.dev_major, stat.dev_minor]
       else
         inode = [stat.ino.to_s, stat.dev_major, stat.dev_minor]
       end
