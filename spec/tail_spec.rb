@@ -1,5 +1,6 @@
 require 'filewatch/tail'
 require 'stud/temporary'
+require 'ffi-xattr'
 
 describe FileWatch::Tail do
 
@@ -20,6 +21,14 @@ describe FileWatch::Tail do
 
     it "reads new lines off the file" do
       expect { |b| subject.subscribe(&b) }.to yield_successive_args([file_path, "line1"], [file_path, "line2"])
+    end
+
+    it "file contains xattr 'uuid'" do
+      subject.subscribe {|_,_|  }
+      stat = File::Stat.new(file_path)
+      sincedb_id = subject.sincedb_record_uid(file_path,stat)[0]
+
+      expect(Xattr.new(file_path)['uuid']).to eq(sincedb_id)
     end
   end
 
