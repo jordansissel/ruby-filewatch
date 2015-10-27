@@ -12,12 +12,6 @@ module Winhelper
 	
 	#http://msdn.microsoft.com/en-us/library/windows/desktop/aa363788(v=vs.85).aspx
 	class FileInformation < FFI::Struct
-		def initialize()
-			createTime = FileTime.new
-			lastAccessTime = FileTime.new
-			lastWriteTime = FileTime.new
-		end
-		
 		layout :fileAttributes, :uint, #DWORD    dwFileAttributes;
 		:createTime, FileTime,  #FILETIME ftCreationTime;
 		:lastAccessTime, FileTime, #FILETIME ftLastAccessTime;
@@ -56,7 +50,7 @@ module Winhelper
 			#	]
 			#p "Information: %u %u %u %u %u %u %u " % args
 			#this is only guaranteed on NTFS, for ReFS on windows 2012, GetFileInformationByHandleEx should be used with FILE_ID_INFO, which returns a 128 bit identifier
-			return "#{fileInfo[:volumeSerialNumber]}-#{fileInfo[:fileIndexLow]}-#{fileInfo[:fileIndexHigh]}"
+      return "#{fileInfo[:volumeSerialNumber]}-#{fileInfo[:fileIndexLow]}-#{fileInfo[:fileIndexHigh]}"
 		else
 			#p "cannot retrieve file information, returning path"
 			return path;
