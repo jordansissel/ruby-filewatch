@@ -5,7 +5,7 @@ if Gem.win_platform?
   require "lib/filewatch/winhelper"
 
   describe Winhelper do
-    let(:path) { Stud::Temporare.file }
+    let(:path) { Stud::Temporary.file.path }
 
     after do
       FileUtils.rm_rf(path)
