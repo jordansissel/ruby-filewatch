@@ -2,6 +2,8 @@ require "logger"
 if RbConfig::CONFIG['host_os'] =~ /mswin|mingw|cygwin/
   require "filewatch/winhelper"
 end
+require "ffi-xattr"
+require "uuid"
 
 module FileWatch
   class Watch
@@ -19,6 +21,9 @@ module FileWatch
       @watching = []
       @exclude = []
       @files = Hash.new { |h, k| h[k] = Hash.new }
+
+      @xattr = opts[:xattr] || 'uuid'
+      @uuid = UUID.new if @xattr
     end # def initialize
 
     public
@@ -46,6 +51,22 @@ module FileWatch
       if @iswindows
         fileId = Winhelper.GetWindowsUniqueFileIdentifier(path)
         inode = [fileId, stat.dev_major, stat.dev_minor]
+      elsif @xattr
+        begin
+          xattr = Xattr.new(path)
+
+          fileId = xattr[@xattr]
+
+          if !fileId
+            fileId = @uuid.generate
+
+            xattr[@xattr] = fileId
+          end
+
+          inode = [fileId, stat.dev_major, stat.dev_minor]
+        rescue
+          inode = [stat.ino.to_s, stat.dev_major, stat.dev_minor]
+        end
       else
         inode = [stat.ino.to_s, stat.dev_major, stat.dev_minor]
       end
