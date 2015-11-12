@@ -128,7 +128,7 @@ module FileWatch
 
     private
     def _discover_file(path, initial=false)
-      globbed_dirs = Dir.glob(path)
+      globbed_dirs = Dir.glob(path).sort_by { |a| File.mtime(a) }
       @logger.debug? && @logger.debug("_discover_file_glob: #{path}: glob is: #{globbed_dirs}")
       if globbed_dirs.empty? && File.file?(path)
         globbed_dirs = [path]
