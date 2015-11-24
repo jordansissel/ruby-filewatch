@@ -155,7 +155,7 @@ module FileWatch
           @logger.debug? && @logger.debug("#{path}: initial create, no sincedb, seeking to beginning of file")
           @files[path].sysseek(0, IO::SEEK_SET)
           @sincedb[sincedb_record_uid] = 0
-        else 
+        else
           # seek to end
           @logger.debug? && @logger.debug("#{path}: initial create, no sincedb, seeking to end #{stat.size}")
           @files[path].sysseek(stat.size, IO::SEEK_SET)
@@ -240,7 +240,23 @@ module FileWatch
     def quit
       _sincedb_write
       @watch.quit
+      close_files
     end # def quit
+
+    public
+    def close_file(path)
+      @watch.unwatch(path)
+      file = @files.delete(path)
+      return if file.nil?
+      _sincedb_write
+      file.close
+    end
+
+    private
+    def close_files
+      @files.each {|path, file| file.close }
+      @files.clear
+    end
 
     private
     def serialize_sincedb
