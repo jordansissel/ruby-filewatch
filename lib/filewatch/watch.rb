@@ -19,6 +19,8 @@ module FileWatch
       @watching = []
       @exclude = []
       @files = Hash.new { |h, k| h[k] = Hash.new }
+      @unwatched = Hash.new
+      @lock = Mutex.new
     end # def initialize
 
     public
@@ -33,13 +35,31 @@ module FileWatch
 
     public
     def watch(path)
-      if ! @watching.member?(path)
-        @watching << path
-        _discover_file(path, true)
+      synchronized do
+        if !@watching.member?(path)
+          @watching << path
+          _discover_file(path, true)
+        end
       end
-
       return true
     end # def watch
+
+    def unwatch(path)
+      synchronized do
+        res = false
+        if @watching.delete(path)
+          _globbed_files(path).each do |file|
+              deleted = @files.delete(file)
+            @unwatched[file] = deleted if deleted
+          end
+          res = true
+        else
+          res = @files.delete(path)
+          @unwatched[path] = res if res
+        end
+        return !!res
+      end
+    end
 
     public
     def inode(path,stat)
@@ -60,52 +80,56 @@ module FileWatch
     #   :delete - file is deleted
     public
     def each(&block)
-      # Send any creates.
-      @files.keys.each do |path|
-        if ! @files[path][:create_sent]
-          if @files[path][:initial]
-            yield(:create_initial, path)
-          else
-            yield(:create, path)
+      synchronized do
+        # Send any creates.
+        @files.keys.each do |path|
+          if ! @files[path][:create_sent]
+            if @files[path][:initial]
+              yield(:create_initial, path)
+            else
+              yield(:create, path)
+            end
+            @files[path][:create_sent] = true
           end
-          @files[path][:create_sent] = true
         end
+
+        @files.keys.each do |path|
+          begin
+            stat = File::Stat.new(path)
+          rescue Errno::ENOENT
+            # file has gone away or we can't read it anymore.
+            @files.delete(path)
+            @logger.debug? && @logger.debug("#{path}: stat failed (#{$!}), deleting from @files")
+            yield(:delete, path)
+            next
+          end
+
+          inode = inode(path,stat)
+          if inode != @files[path][:inode]
+            @logger.debug? && @logger.debug("#{path}: old inode was #{@files[path][:inode].inspect}, new is #{inode.inspect}")
+            yield(:delete, path)
+            yield(:create, path)
+          elsif stat.size < @files[path][:size]
+            @logger.debug? && @logger.debug("#{path}: file rolled, new size is #{stat.size}, old size #{@files[path][:size]}")
+            yield(:delete, path)
+            yield(:create, path)
+          elsif stat.size > @files[path][:size]
+            @logger.debug? && @logger.debug("#{path}: file grew, old size #{@files[path][:size]}, new size #{stat.size}")
+            yield(:modify, path)
+          end
+
+          @files[path][:size] = stat.size
+          @files[path][:inode] = inode
+        end # @files.keys.each
       end
-
-      @files.keys.each do |path|
-        begin
-          stat = File::Stat.new(path)
-        rescue Errno::ENOENT
-          # file has gone away or we can't read it anymore.
-          @files.delete(path)
-          @logger.debug? && @logger.debug("#{path}: stat failed (#{$!}), deleting from @files")
-          yield(:delete, path)
-          next
-        end
-
-        inode = inode(path,stat)
-        if inode != @files[path][:inode]
-          @logger.debug? && @logger.debug("#{path}: old inode was #{@files[path][:inode].inspect}, new is #{inode.inspect}")
-          yield(:delete, path)
-          yield(:create, path)
-        elsif stat.size < @files[path][:size]
-          @logger.debug? && @logger.debug("#{path}: file rolled, new size is #{stat.size}, old size #{@files[path][:size]}")
-          yield(:delete, path)
-          yield(:create, path)
-        elsif stat.size > @files[path][:size]
-          @logger.debug? && @logger.debug("#{path}: file grew, old size #{@files[path][:size]}, new size #{stat.size}")
-          yield(:modify, path)
-        end
-
-        @files[path][:size] = stat.size
-        @files[path][:inode] = inode
-      end # @files.keys.each
     end # def each
 
     public
     def discover
-      @watching.each do |path|
-        _discover_file(path)
+      synchronized do
+        @watching.each do |path|
+          _discover_file(path)
+        end
       end
     end
 
@@ -128,14 +152,9 @@ module FileWatch
 
     private
     def _discover_file(path, initial=false)
-      globbed_dirs = Dir.glob(path)
-      @logger.debug? && @logger.debug("_discover_file_glob: #{path}: glob is: #{globbed_dirs}")
-      if globbed_dirs.empty? && File.file?(path)
-        globbed_dirs = [path]
-        @logger.debug? && @logger.debug("_discover_file_glob: #{path}: glob is: #{globbed_dirs} because glob did not work")
-      end
-      globbed_dirs.each do |file|
+      _globbed_files(path).each do |file|
         next if @files.member?(file)
+        next if @unwatched.member?(file)
         next unless File.file?(file)
 
         @logger.debug? && @logger.debug("_discover_file: #{path}: new: #{file} (exclude is #{@exclude.inspect})")
@@ -160,6 +179,23 @@ module FileWatch
         }
       end
     end # def _discover_file
+
+    private
+    def _globbed_files(path)
+      globbed_dirs = Dir.glob(path)
+      @logger.debug? && @logger.debug("_globbed_files: #{path}: glob is: #{globbed_dirs}")
+      if globbed_dirs.empty? && File.file?(path)
+        globbed_dirs = [path]
+        @logger.debug? && @logger.debug("_globbed_files: #{path}: glob is: #{globbed_dirs} because glob did not work")
+      end
+      # return Enumerator
+      globbed_dirs.to_enum
+    end
+
+    private
+    def synchronized(&block)
+      @lock.synchronize { block.call }
+    end
 
     public
     def quit

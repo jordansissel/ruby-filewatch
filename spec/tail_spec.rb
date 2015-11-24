@@ -1,5 +1,6 @@
 require 'filewatch/tail'
 require 'stud/temporary'
+Thread.abort_on_exception = true
 
 describe FileWatch::Tail do
 
@@ -146,6 +147,7 @@ describe FileWatch::Tail do
     let(:directory) { Stud::Temporary.directory }
     let(:file_path) { File.join(directory, "1.log") }
     let(:position) { :beginning }
+    let(:should_yield) { [[file_path, "line1"], [file_path, "line2"]] }
 
     subject { FileWatch::Tail.new(:sincedb_path => sincedb_path, :start_new_files_at => position, :stat_interval => 0) }
 
@@ -159,7 +161,7 @@ describe FileWatch::Tail do
     end
 
     it "reads new lines off the file" do
-      expect { |b| subject.subscribe(&b) }.to yield_successive_args([file_path, "line1"], [file_path, "line2"])
+      expect { |b| subject.subscribe(&b) }.to yield_successive_args(*should_yield)
     end
 
     context "when a file is renamed" do
@@ -173,6 +175,48 @@ describe FileWatch::Tail do
         Thread.new(subject) { |s| sleep 1; s.quit }
         expect { |b| subject.subscribe(&b) }.not_to yield_control
       end
+    end
+
+    let(:new_file_path) { File.join(directory, "2.log") }
+
+    context "when a new file is later added to the directory" do
+      before do
+        File.open(new_file_path, "wb") { |file|  file.write("line2.1\nline2.2\n") }
+        should_yield.push [new_file_path, "line2.1"]
+        should_yield.push [new_file_path, "line2.2"]
+      end
+
+      it "reads new lines off the new file" do
+        expect { |b| subject.subscribe(&b) }.to yield_successive_args(*should_yield)
+      end
+
+      context "and when the sincedb path is not given" do
+        subject { FileWatch::Tail.new(:start_new_files_at => position, :stat_interval => 0) }
+
+        it "reads new lines off the new file" do
+          expect { |b| subject.subscribe(&b) }.to yield_successive_args(*should_yield)
+        end
+      end
+    end
+  end
+
+  context "when quiting" do
+    subject { FileWatch::Tail.new(:sincedb_path => sincedb_path, :start_new_files_at => :beginning, :stat_interval => 0) }
+
+    before :each do
+      subject.tail(file_path)
+      File.open(file_path, "wb") { |file|  file.write("line1\nline2\n") }
+    end
+
+    it "closes the file handles" do
+      buffer = []
+      subject.subscribe do |path, line|
+        buffer.push([path, line])
+      end
+      subject.sincedb_write
+      subject.quit
+      lsof = `lsof -p #{Process.pid} | grep #{file_path}`
+      expect(lsof).to eq("")
     end
   end
 end
