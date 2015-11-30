@@ -44,7 +44,8 @@ module FileWatch
         :discover_interval => 5,
         :exclude => [],
         :start_new_files_at => :end,
-        :delimiter => "\n"
+        :delimiter => "\n",
+        :mode => :tail # or :read_to_eof
       }.merge(opts)
       if !@opts.include?(:sincedb_path)
         @opts[:sincedb_path] = File.join(ENV["HOME"], ".sincedb") if ENV.include?("HOME")
@@ -155,7 +156,7 @@ module FileWatch
           @logger.debug? && @logger.debug("#{path}: initial create, no sincedb, seeking to beginning of file")
           @files[path].sysseek(0, IO::SEEK_SET)
           @sincedb[sincedb_record_uid] = 0
-        else 
+        else
           # seek to end
           @logger.debug? && @logger.debug("#{path}: initial create, no sincedb, seeking to end #{stat.size}")
           @files[path].sysseek(stat.size, IO::SEEK_SET)
@@ -183,7 +184,12 @@ module FileWatch
             yield(path, line)
             @sincedb[@statcache[path]] += (line.bytesize + delimiter_byte_size)
           end
-        rescue Errno::EWOULDBLOCK, Errno::EINTR, EOFError
+        rescue EOFError
+          if @opts[:mode] == :read_to_eof
+            yield(path, "\x04")
+          end
+          break
+        rescue Errno::EWOULDBLOCK, Errno::EINTR
           break
         end
       end

@@ -175,4 +175,22 @@ describe FileWatch::Tail do
       end
     end
   end
+
+  context "when watching a new file in read_to_eof mode" do
+    subject { FileWatch::Tail.new(:sincedb_path => sincedb_path, :mode => :read_to_eof, :start_new_files_at => :beginning, :stat_interval => 0) }
+
+    before :each do
+      subject.tail(file_path)
+      File.open(file_path, "wb") { |file|  file.write("line1\nline2\n") }
+    end
+
+    after :each do
+      FileUtils.rm_rf(sincedb_path)
+      FileUtils.rm_rf(file_path)
+    end
+
+    it "reads new lines off the file" do
+      expect { |b| subject.subscribe(&b) }.to yield_successive_args([file_path, "line1"], [file_path, "line2"], [file_path, "\x04"], [file_path, "\x04"])
+    end
+  end
 end
