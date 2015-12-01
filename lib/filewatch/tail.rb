@@ -1,6 +1,9 @@
 require "filewatch/helper"
 require "filewatch/buftok"
 require "filewatch/watch"
+require "filewatch/yielding_tail"
+require "filewatch/observing_tail"
+
 if RbConfig::CONFIG['host_os'] =~ /mswin|mingw|cygwin/
   require "filewatch/winhelper"
 end
@@ -12,6 +15,9 @@ require "JRubyFileExtension.jar" if defined? JRUBY_VERSION
 
 module FileWatch
   class Tail
+    include YieldingTail
+    include ObservingTail
+
     # how often (in seconds) we @logger.warn a failed file open, per path.
     OPEN_WARN_INTERVAL = ENV["FILEWATCH_OPEN_WARN_INTERVAL"] ?
                          ENV["FILEWATCH_OPEN_WARN_INTERVAL"].to_i : 300
@@ -19,6 +25,13 @@ module FileWatch
     attr_accessor :logger
 
     class NoSinceDBPathGiven < StandardError; end
+
+    alias_method :subscribe, :yield_subscribe
+
+    def self.new_observing(opts = {})
+      alias_method :subscribe, :observe_subscribe
+      new(opts)
+    end
 
     public
     def initialize(opts={})
@@ -68,43 +81,6 @@ module FileWatch
     def tail(path)
       @watch.watch(path)
     end # def tail
-
-    public
-    def subscribe(&block)
-      # subscribe(stat_interval = 1, discover_interval = 5, &block)
-      @watch.subscribe(@opts[:stat_interval],
-                       @opts[:discover_interval]) do |event, path|
-        case event
-        when :create, :create_initial
-          if @files.member?(path)
-            @logger.debug? && @logger.debug("#{event} for #{path}: already exists in @files")
-            next
-          end
-          if _open_file(path, event)
-            _read_file(path, &block)
-          end
-        when :modify
-          if !@files.member?(path)
-            @logger.debug? && @logger.debug(":modify for #{path}, does not exist in @files")
-            if _open_file(path, event)
-              _read_file(path, &block)
-            end
-          else
-            _read_file(path, &block)
-          end
-        when :delete
-          @logger.debug? && @logger.debug(":delete for #{path}, deleted from @files")
-          if @files[path]
-            _read_file(path, &block)
-            @files[path].close
-          end
-          @files.delete(path)
-          @statcache.delete(path)
-        else
-          @logger.warn("unknown event type #{event} for #{path}")
-        end
-      end # @watch.subscribe
-    end # def subscribe
 
     public
     def sincedb_record_uid(path, stat)
@@ -169,35 +145,6 @@ module FileWatch
 
       return true
     end # def _open_file
-
-    private
-    def _read_file(path, &block)
-      @buffers[path] ||= FileWatch::BufferedTokenizer.new(@opts[:delimiter])
-      delimiter_byte_size = @opts[:delimiter].bytesize
-      changed = false
-      loop do
-        begin
-          data = @files[path].sysread(32768)
-          changed = true
-          @buffers[path].extract(data).each do |line|
-            yield(path, line)
-            @sincedb[@statcache[path]] += (line.bytesize + delimiter_byte_size)
-          end
-        rescue Errno::EWOULDBLOCK, Errno::EINTR, EOFError
-          break
-        end
-      end
-
-      if changed
-        now = Time.now.to_i
-        delta = now - @sincedb_last_write
-        if delta >= @opts[:sincedb_write_interval]
-          @logger.debug? && @logger.debug("writing sincedb (delta since last write = #{delta})")
-          _sincedb_write
-          @sincedb_last_write = now
-        end
-      end
-    end # def _read_file
 
     public
     def sincedb_write(reason=nil)
