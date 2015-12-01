@@ -229,7 +229,7 @@ module FileWatch
     private
     def _sincedb_write
       path = @opts[:sincedb_path]
-      if File.device?(path)
+      if @iswindows || File.device?(path)
         IO.write(path, serialize_sincedb, 0)
       else
         File.atomic_write(path) {|file| file.write(serialize_sincedb) }

@@ -45,7 +45,7 @@ module FileWatch
     def inode(path,stat)
       if @iswindows
         fileId = Winhelper.GetWindowsUniqueFileIdentifier(path)
-        inode = [fileId, stat.dev_major, stat.dev_minor]
+        inode = [fileId, 0, 0] # dev_* doesn't make sense on Windows
       else
         inode = [stat.ino.to_s, stat.dev_major, stat.dev_minor]
       end
