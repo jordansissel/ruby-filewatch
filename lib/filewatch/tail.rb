@@ -248,7 +248,7 @@ module FileWatch
     end # def quit
 
     public
-    # close_file(path) is to used by external code
+    # close_file(path) is to be used by external code
     # when it knows that it is completely done with a file.
     # Other files or folders may still be being watched.
     # Caution, once unwatched, a file can't be watched again
