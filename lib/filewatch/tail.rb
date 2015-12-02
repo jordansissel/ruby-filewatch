@@ -237,25 +237,29 @@ module FileWatch
     end # def _sincedb_write
 
     public
+    # quit is a sort-of finalizer,
+    # it should be called for clean up
+    # before the instance is disposed of.
     def quit
       _sincedb_write
       @watch.quit
-      close_files
+      @files.each {|path, file| file.close }
+      @files.clear
     end # def quit
 
     public
+    # close_file(path) is to used by external code
+    # when it knows that it is completely done with a file.
+    # Other files or folders may still be being watched.
+    # Caution, once unwatched, a file can't be watched again
+    # unless a new instance of this class begins watching again.
+    # The sysadmin should rename, move or delete the file.
     def close_file(path)
       @watch.unwatch(path)
       file = @files.delete(path)
       return if file.nil?
       _sincedb_write
       file.close
-    end
-
-    private
-    def close_files
-      @files.each {|path, file| file.close }
-      @files.clear
     end
 
     private

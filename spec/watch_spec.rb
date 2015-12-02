@@ -1,9 +1,16 @@
 require 'filewatch/watch'
 require 'stud/temporary'
 
-Thread.abort_on_exception = true
-
 describe FileWatch::Watch do
+  before(:all) do
+    @thread_abort = Thread.abort_on_exception
+    Thread.abort_on_exception = true
+  end
+
+  after(:all) do
+    Thread.abort_on_exception = @thread_abort
+  end
+
   let(:directory) { Stud::Temporary.directory }
   let(:file_path) { File.join(directory, "1.log") }
   let(:loggr)     { double("loggr", :debug? => true) }
@@ -23,11 +30,9 @@ describe FileWatch::Watch do
       end
     end
   end
-  let(:log_simulation_proc) do
+  let(:write_lines_1_and_2_proc) do
     lambda do
-      Thread.new do
-        File.open(file_path, "wb") { |file|  file.write("line1\nline2\n") }
-      end
+      File.open(file_path, "wb") { |file|  file.write("line1\nline2\n") }
     end
   end
 
@@ -43,8 +48,7 @@ describe FileWatch::Watch do
 
   context "when watching a directory with files" do
     it "yields create_initial and one modify file events" do
-      th = log_simulation_proc.call
-      th.join
+      write_lines_1_and_2_proc.call
       subject.watch(File.join(directory, "*"))
       quit_proc.call
       subscribe_proc.call
@@ -55,9 +59,7 @@ describe FileWatch::Watch do
   context "when watching a directory without files and one is added" do
     it "yields create and one modify file events" do
       subject.watch(File.join(directory, "*"))
-
-      th = log_simulation_proc.call
-      th.join
+      write_lines_1_and_2_proc.call
 
       quit_proc.call
       subscribe_proc.call
@@ -67,7 +69,7 @@ describe FileWatch::Watch do
   end
 
   context "when watching a directory with files and data is appended" do
-    let(:log_simulation_next_proc) do
+    let(:write_lines_3_and_4_proc) do
       lambda do
         Thread.new do
           sleep 0.5
@@ -77,12 +79,10 @@ describe FileWatch::Watch do
     end
 
     it "yields create_initial and two modified file events" do
-      th = log_simulation_proc.call
-      th.join # synchronous, wait WAIT for it, AAAAATENSHUN!
-
+      write_lines_1_and_2_proc.call
       subject.watch(File.join(directory, "*"))
 
-      log_simulation_next_proc.call # asynchronous
+      write_lines_3_and_4_proc.call # asynchronous
 
       quit_proc.call
       subscribe_proc.call
@@ -92,7 +92,7 @@ describe FileWatch::Watch do
   end
 
   context "when unwatching a file and data is appended" do
-    let(:log_simulation_next_proc) do
+    let(:write_lines_3_and_4_proc) do
       lambda do
         Thread.new do
           sleep 0.2
@@ -105,11 +105,10 @@ describe FileWatch::Watch do
     end
 
     it "does not yield events after unwatching" do
-      th = log_simulation_proc.call
-      th.join # synchronous
+      write_lines_1_and_2_proc.call
       subject.watch(File.join(directory, "*"))
 
-      log_simulation_next_proc.call # asynchronous
+      write_lines_3_and_4_proc.call # asynchronous
 
       quit_proc.call
       subscribe_proc.call

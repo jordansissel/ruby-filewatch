@@ -1,8 +1,16 @@
 require 'filewatch/tail'
 require 'stud/temporary'
-Thread.abort_on_exception = true
+require "rbconfig"
 
 describe FileWatch::Tail do
+  before(:all) do
+    @thread_abort = Thread.abort_on_exception
+    Thread.abort_on_exception = true
+  end
+
+  after(:all) do
+    Thread.abort_on_exception = @thread_abort
+  end
 
   let(:file_path) { f = Stud::Temporary.pathname }
   let(:sincedb_path) { Stud::Temporary.pathname }
@@ -86,7 +94,6 @@ describe FileWatch::Tail do
     end
 
     context "when restarting tail" do
-
       before :each do
         subject.subscribe {|_,_| }
         sleep 0.6 # wait for tail.quit
@@ -146,10 +153,8 @@ describe FileWatch::Tail do
 
     let(:directory) { Stud::Temporary.directory }
     let(:file_path) { File.join(directory, "1.log") }
-    let(:position) { :beginning }
-    let(:should_yield) { [[file_path, "line1"], [file_path, "line2"]] }
 
-    subject { FileWatch::Tail.new(:sincedb_path => sincedb_path, :start_new_files_at => position, :stat_interval => 0) }
+    subject { FileWatch::Tail.new(:sincedb_path => sincedb_path, :start_new_files_at => :beginning, :stat_interval => 0) }
 
     before :each do
       File.open(file_path, "wb") { |file|  file.write("line1\nline2\n") }
@@ -160,8 +165,8 @@ describe FileWatch::Tail do
       FileUtils.rm_rf(directory)
     end
 
-    it "reads new lines off the file" do
-      expect { |b| subject.subscribe(&b) }.to yield_successive_args(*should_yield)
+    it "reads new lines from the beginning" do
+      expect { |b| subject.subscribe(&b) }.to yield_successive_args([file_path, "line1"], [file_path, "line2"])
     end
 
     context "when a file is renamed" do
@@ -180,43 +185,48 @@ describe FileWatch::Tail do
     let(:new_file_path) { File.join(directory, "2.log") }
 
     context "when a new file is later added to the directory" do
+      # Note tests in this context rely on FileWatch::Watch reading
+      # file 1.log first then 2.log and that depends on how Dir.glob is implemented
+      # in different rubies on different operating systems
       before do
         File.open(new_file_path, "wb") { |file|  file.write("line2.1\nline2.2\n") }
-        should_yield.push [new_file_path, "line2.1"]
-        should_yield.push [new_file_path, "line2.2"]
       end
 
-      it "reads new lines off the new file" do
-        expect { |b| subject.subscribe(&b) }.to yield_successive_args(*should_yield)
+      it "reads new lines from the beginning for all files" do
+        expect { |b| subject.subscribe(&b) }.to yield_successive_args([file_path, "line1"], [file_path, "line2"],
+                                                                        [new_file_path, "line2.1"], [new_file_path, "line2.2"])
       end
 
       context "and when the sincedb path is not given" do
-        subject { FileWatch::Tail.new(:start_new_files_at => position, :stat_interval => 0) }
+        subject { FileWatch::Tail.new(:start_new_files_at => :beginning, :stat_interval => 0) }
 
-        it "reads new lines off the new file" do
-          expect { |b| subject.subscribe(&b) }.to yield_successive_args(*should_yield)
+        it "reads new lines from the beginning for all files" do
+          expect { |b| subject.subscribe(&b) }.to yield_successive_args([file_path, "line1"], [file_path, "line2"],
+                                                                        [new_file_path, "line2.1"], [new_file_path, "line2.2"])
         end
       end
     end
   end
 
-  context "when quiting" do
-    subject { FileWatch::Tail.new(:sincedb_path => sincedb_path, :start_new_files_at => :beginning, :stat_interval => 0) }
+  if RbConfig::CONFIG['host_os'] !~ /mswin|mingw|cygwin/
+    context "when quiting" do
+      subject { FileWatch::Tail.new(:sincedb_path => sincedb_path, :start_new_files_at => :beginning, :stat_interval => 0) }
 
-    before :each do
-      subject.tail(file_path)
-      File.open(file_path, "wb") { |file|  file.write("line1\nline2\n") }
-    end
-
-    it "closes the file handles" do
-      buffer = []
-      subject.subscribe do |path, line|
-        buffer.push([path, line])
+      before :each do
+        subject.tail(file_path)
+        File.open(file_path, "wb") { |file|  file.write("line1\nline2\n") }
       end
-      subject.sincedb_write
-      subject.quit
-      lsof = `lsof -p #{Process.pid} | grep #{file_path}`
-      expect(lsof).to eq("")
+
+      it "closes the file handles" do
+        buffer = []
+        subject.subscribe do |path, line|
+          buffer.push([path, line])
+        end
+        subject.sincedb_write
+        subject.quit
+        lsof = `lsof -p #{Process.pid} | grep #{file_path}`
+        expect(lsof).to be_empty
+      end
     end
   end
 end

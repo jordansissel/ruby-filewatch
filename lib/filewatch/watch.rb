@@ -20,6 +20,10 @@ module FileWatch
       @exclude = []
       @files = Hash.new { |h, k| h[k] = Hash.new }
       @unwatched = Hash.new
+      # we need to be threadsafe about the mutation
+      # of the above 2 ivars because the public
+      # methods each, discover, watch and unwatch
+      # can be called from different threads.
       @lock = Mutex.new
     end # def initialize
 
@@ -46,18 +50,18 @@ module FileWatch
 
     def unwatch(path)
       synchronized do
-        res = false
+        result = false
         if @watching.delete(path)
           _globbed_files(path).each do |file|
-              deleted = @files.delete(file)
+            deleted = @files.delete(file)
             @unwatched[file] = deleted if deleted
           end
-          res = true
+          result = true
         else
-          res = @files.delete(path)
-          @unwatched[path] = res if res
+          result = @files.delete(path)
+          @unwatched[path] = result if result
         end
-        return !!res
+        return !!result
       end
     end
 
