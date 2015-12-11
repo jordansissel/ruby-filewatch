@@ -60,7 +60,7 @@ module FileWatch
           data = @files[path].sysread(32768)
           changed = true
           @buffers[path].extract(data).each do |line|
-            listener.line(line)
+            listener.accept(line)
             @sincedb[@statcache[path]] += (line.bytesize + delimiter_byte_size)
           end
         rescue EOFError
