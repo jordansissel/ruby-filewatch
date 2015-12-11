@@ -2,7 +2,7 @@ module FileWatch
   module ObservingTail
     class NullObserver
       def listener_for(path) @path = path; self; end
-      def line(line) end
+      def accept(line) end
       def deleted() end
       def created() end
       def error() end
