@@ -14,9 +14,15 @@ describe FileWatch::Tail do
 
   let(:file_path) { f = Stud::Temporary.pathname }
   let(:sincedb_path) { Stud::Temporary.pathname }
+  let(:quit_sleep) { 0.5 }
 
   before :each do
-    Thread.new(subject) { sleep 0.5; subject.quit } # force the subscribe loop to exit
+    Thread.new(subject) { sleep quit_sleep; subject.quit } # force the subscribe loop to exit
+  end
+
+  after :each do
+    FileUtils.rm_rf(file_path)
+    FileUtils.rm_rf(sincedb_path)
   end
 
   context "when watching a new file" do
@@ -96,7 +102,7 @@ describe FileWatch::Tail do
     context "when restarting tail" do
       before :each do
         subject.subscribe {|_,_| }
-        sleep 0.6 # wait for tail.quit
+        sleep quit_sleep + 0.1 # wait for tail.quit
         subject.tail(file_path) # re-tail file
         File.open(file_path, "ab") { |file| file.write("line3\nline4\n") }
         Thread.new(subject) { sleep 0.5; subject.quit }
@@ -222,8 +228,6 @@ describe FileWatch::Tail do
         subject.subscribe do |path, line|
           buffer.push([path, line])
         end
-        subject.sincedb_write
-        subject.quit
         lsof = `lsof -p #{Process.pid} | grep #{file_path}`
         expect(lsof).to be_empty
       end

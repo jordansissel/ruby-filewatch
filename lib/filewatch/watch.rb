@@ -5,7 +5,34 @@ end
 
 module FileWatch
   class Watch
-    attr_accessor :logger
+    class WatchedFile
+      attr_accessor :size, :inode
+      attr_writer :create_sent, :initial, :timeout_sent
+
+      attr_reader :path
+
+      def initialize(path, inode, initial)
+        @path = path
+        @size, @create_sent, @timeout_sent = 0, false, false
+        @inode, @initial = inode, initial
+      end
+
+      def create_sent?
+        @create_sent
+      end
+
+      def initial?
+        @initial
+      end
+
+      def timeout_sent?
+        @timeout_sent
+      end
+
+      def to_s() inspect; end
+    end
+
+    attr_accessor :logger, :ignore_after
 
     public
     def initialize(opts={})
@@ -18,7 +45,7 @@ module FileWatch
       end
       @watching = []
       @exclude = []
-      @files = Hash.new { |h, k| h[k] = Hash.new }
+      @files = Hash.new { |h, k| h[k] = WatchedFile.new(nil, false) }
       @unwatched = Hash.new
       # we need to be threadsafe about the mutation
       # of the above 2 ivars because the public
@@ -26,11 +53,6 @@ module FileWatch
       # can be called from different threads.
       @lock = Mutex.new
     end # def initialize
-
-    public
-    def logger=(logger)
-      @logger = logger
-    end
 
     public
     def exclude(path)
@@ -86,18 +108,18 @@ module FileWatch
     def each(&block)
       synchronized do
         # Send any creates.
-        @files.keys.each do |path|
-          if ! @files[path][:create_sent]
-            if @files[path][:initial]
+        @files.each do |path, watched_value|
+          if !watched_value.create_sent?
+            if watched_value.initial?
               yield(:create_initial, path)
             else
               yield(:create, path)
             end
-            @files[path][:create_sent] = true
+            watched_value.create_sent = true
           end
         end
 
-        @files.keys.each do |path|
+        @files.each do |path, watched_value|
           begin
             stat = File::Stat.new(path)
           rescue Errno::ENOENT
@@ -109,22 +131,24 @@ module FileWatch
           end
 
           inode = inode(path,stat)
-          if inode != @files[path][:inode]
-            @logger.debug? && @logger.debug("#{path}: old inode was #{@files[path][:inode].inspect}, new is #{inode.inspect}")
+          old_size = watched_value.size
+
+          if inode != watched_value.inode
+            @logger.debug? && @logger.debug("#{path}: old inode was #{watched_value.inode.inspect}, new is #{inode.inspect}")
             yield(:delete, path)
             yield(:create, path)
-          elsif stat.size < @files[path][:size]
-            @logger.debug? && @logger.debug("#{path}: file rolled, new size is #{stat.size}, old size #{@files[path][:size]}")
+          elsif stat.size < old_size
+            @logger.debug? && @logger.debug("#{path}: file rolled, new size is #{stat.size}, old size #{old_size}")
             yield(:delete, path)
             yield(:create, path)
-          elsif stat.size > @files[path][:size]
-            @logger.debug? && @logger.debug("#{path}: file grew, old size #{@files[path][:size]}, new size #{stat.size}")
+          elsif stat.size > old_size
+            @logger.debug? && @logger.debug("#{path}: file grew, old size #{old_size}, new size #{stat.size}")
             yield(:modify, path)
           end
 
-          @files[path][:size] = stat.size
-          @files[path][:inode] = inode
-        end # @files.keys.each
+          watched_value.size = stat.size
+          watched_value.inode = inode
+        end
       end
     end # def each
 
@@ -175,12 +199,7 @@ module FileWatch
         next if skip
 
         stat = File::Stat.new(file)
-        @files[file] = {
-          :size => 0,
-          :inode => inode(file,stat),
-          :create_sent => false,
-          :initial => initial
-        }
+        @files[file] = WatchedFile.new(file, inode(file, stat), initial)
       end
     end # def _discover_file
 

@@ -1,7 +1,11 @@
+require 'filewatch/tail_base'
+
 module FileWatch
-  module YieldingTail
+  class YieldingTail
+    include TailBase
+
     public
-    def yield_subscribe(&block)
+    def subscribe(&block)
       # subscribe(stat_interval = 1, discover_interval = 5, &block)
       @watch.subscribe(@opts[:stat_interval],
                        @opts[:discover_interval]) do |event, path|
@@ -24,7 +28,7 @@ module FileWatch
             yield_read_file(path, &block)
           end
         when :delete
-          @logger.debug? && @logger.debug(":delete for #{path}, deleted from @files")
+          @logger.debug? && @logger.debug(":delete for: #{path} - closed and deleted from @files")
           if @files[path]
             yield_read_file(path, &block)
             @files[path].close
@@ -64,6 +68,6 @@ module FileWatch
           @sincedb_last_write = now
         end
       end
-    end # def _read_file
+    end
   end # module YieldingTail
 end # module FileWatch

@@ -1,7 +1,12 @@
+require 'filewatch/tail_base'
+
 module FileWatch
-  module ObservingTail
-    class NullObserver
-      def listener_for(path) @path = path; self; end
+  class ObservingTail
+    include TailBase
+    public
+
+    class NullListener
+      def initialize(path) @path = path; end
       def accept(line) end
       def deleted() end
       def created() end
@@ -9,9 +14,11 @@ module FileWatch
       def eof() end
     end
 
-    public
-    def observe_subscribe(observer = NullObserver.new)
-      # subscribe(stat_interval = 1, discover_interval = 5, &block)
+    class NullObserver
+      def listener_for(path) NullListener.new(path); end
+    end
+
+    def subscribe(observer = NullObserver.new)
       @watch.subscribe(@opts[:stat_interval],
                        @opts[:discover_interval]) do |event, path|
         listener = observer.listener_for(path)
@@ -38,7 +45,6 @@ module FileWatch
           @logger.debug? && @logger.debug(":delete for #{path}, deleted from @files")
           if @files[path]
             observe_read_file(path, listener)
-
             @files[path].close
           end
           listener.deleted
@@ -82,5 +88,5 @@ module FileWatch
         end
       end
     end # def _read_file
-  end # class Tail
+  end
 end # module FileWatch

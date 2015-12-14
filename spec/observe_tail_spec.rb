@@ -11,7 +11,7 @@ class TailObserver
       @calls = []
     end
 
-    def line(line)
+    def accept(line)
       @lines << line
     end
 
@@ -104,18 +104,20 @@ describe FileWatch::Tail do
   end
 
   context "when a file is deleted" do
-    subject { FileWatch::Tail.new_observing(:sincedb_path => sincedb_path, :start_new_files_at => :beginning) }
+    let(:quit_sleep) { 2 }
+
+    subject { FileWatch::Tail.new_observing(:sincedb_path => sincedb_path, :start_new_files_at => :beginning, :stat_interval => 0.25) }
 
     before :each do
       File.open(file_path, "w") { |file|  file.write("line1\nline2\n") }
       subject.tail(file_path)
-      File.unlink file_path
+      Thread.new { sleep(quit_sleep - 1); File.unlink file_path }
     end
 
-    it "should not raise exception" do
-      expect { subject.subscribe(observer) }.not_to raise_error
-      expect(observer.listeners[file_path].lines).to eq([])
-      expect(observer.listeners[file_path].calls).to eq([:delete])
+    it "should read the lines and call deleted on listener" do
+      subject.subscribe(observer)
+      expect(observer.listeners[file_path].lines).to eq(["line1", "line2"])
+      expect(observer.listeners[file_path].calls).to eq([:create, :eof, :eof, :eof, :delete])
     end
   end
 
