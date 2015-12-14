@@ -30,6 +30,10 @@ class TailObserver
     def eof()
       @calls << :eof
     end
+
+    def timed_out()
+      @calls << :timed_out
+    end
   end
 
   attr_reader :listeners
@@ -215,6 +219,57 @@ describe FileWatch::Tail do
         File.rename(file_path, file_path + ".bak")
         expect(observer.listeners[file_path].lines).to eq(before_lines)
         expect(observer.listeners[file_path].calls).to eq(before_calls)
+      end
+    end
+  end
+
+  if RbConfig::CONFIG['host_os'] !~ /mswin|mingw|cygwin/
+    context "when quiting" do
+      let(:quit_sleep) { 0.75 }
+
+      subject do
+        FileWatch::Tail.new_observing(
+          :sincedb_path => sincedb_path,
+          :start_new_files_at => :beginning,
+          :stat_interval => 0.1)
+      end
+
+      before :each do
+        subject.tail(file_path)
+        File.open(file_path, "wb") { |file|  file.write("line1\nline2\n") }
+      end
+
+      it "closes the file handle" do
+        subject.subscribe(observer)
+        expect(observer.listeners[file_path].lines).to eq(["line1", "line2"])
+        expect(observer.listeners[file_path].calls).to eq([:create, :eof, :eof])
+        lsof = `lsof -p #{Process.pid} | grep #{file_path}`
+        expect(lsof).to be_empty
+      end
+    end
+
+    context "when ignore_after is set" do
+      let(:quit_sleep) { 3.5 }
+
+      subject do
+        FileWatch::Tail.new_observing(
+          :sincedb_path => sincedb_path,
+          :start_new_files_at => :beginning,
+          :stat_interval => 0.1,
+          :ignore_after => 2)
+      end
+
+      before :each do
+        subject.tail(file_path)
+        File.open(file_path, "wb") { |file|  file.write("line1\nline2\n") }
+      end
+
+      it "closes the file handle" do
+        subject.subscribe(observer)
+        expect(observer.listeners[file_path].lines).to eq(["line1", "line2"])
+        expect(observer.listeners[file_path].calls).to eq([:create, :eof, :eof, :timed_out])
+        lsof = `lsof -p #{Process.pid} | grep #{file_path}`
+        expect(lsof).to be_empty
       end
     end
   end

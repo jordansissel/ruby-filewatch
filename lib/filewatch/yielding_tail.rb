@@ -35,6 +35,12 @@ module FileWatch
           end
           @files.delete(path)
           @statcache.delete(path)
+        when :timeout
+          @logger.debug? && @logger.debug(":timeout for: #{path} - closed and deleted from @files")
+          if (deleted = @files.delete(path))
+            deleted.close
+          end
+          @statcache.delete(path)
         else
           @logger.warn("unknown event type #{event} for #{path}")
         end

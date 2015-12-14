@@ -125,4 +125,40 @@ describe FileWatch::Watch do
     end
   end
 
+  context "when watch expiry is enabled" do
+    let(:quit_sleep) { 3 }
+    let(:stat_interval) { 0.2 }
+
+    before do
+      subject.ignore_after = 2
+    end
+
+    it "yields create_initial, one modify and one timeout file events" do
+      write_lines_1_and_2_proc.call
+      subject.watch(File.join(directory, "*"))
+      quit_proc.call
+      subscribe_proc.call
+      expect(results).to eq([[:create_initial, file_path], [:modify, file_path], [:timeout, file_path]])
+    end
+  end
+
+  context "when watch expiry is enabled and after timeout the file is appended to" do
+    let(:quit_sleep) { 5 }
+    let(:stat_interval) { 0.2 }
+    let(:write_3_and_4_sleep) { 3.5 }
+
+    before do
+      subject.ignore_after = 2
+    end
+
+    it "yields create_initial, two modify and one timeout file events" do
+      write_lines_1_and_2_proc.call
+      write_lines_3_and_4_proc.call # delayed async call
+      subject.watch(File.join(directory, "*"))
+      quit_proc.call
+      subscribe_proc.call
+      expect(results).to eq([[:create_initial, file_path], [:modify, file_path], [:timeout, file_path], [:modify, file_path]])
+    end
+  end
+
 end

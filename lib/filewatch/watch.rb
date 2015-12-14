@@ -130,6 +130,15 @@ module FileWatch
             next
           end
 
+          if expired?(stat, watched_value)
+            if !watched_value.timeout_sent?
+              @logger.debug? && @logger.debug("#{path}: file expired")
+              yield(:timeout, path)
+              watched_value.timeout_sent = true
+            end
+            next
+          end
+
           inode = inode(path,stat)
           old_size = watched_value.size
 
@@ -179,6 +188,13 @@ module FileWatch
     end # def subscribe
 
     private
+    def expired?(stat, watched_value)
+      return false unless expiry_enabled?
+      watched_value.size == stat.size &&
+        Time.now.to_i > (stat.mtime.to_i + @ignore_after)
+    end
+
+    private
     def _discover_file(path, initial=false)
       _globbed_files(path).each do |file|
         next if @files.member?(file)
@@ -202,6 +218,11 @@ module FileWatch
         @files[file] = WatchedFile.new(file, inode(file, stat), initial)
       end
     end # def _discover_file
+
+    private
+    def expiry_enabled?
+      !@ignore_after.nil?
+    end
 
     private
     def _globbed_files(path)

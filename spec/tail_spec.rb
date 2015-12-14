@@ -232,5 +232,36 @@ describe FileWatch::Tail do
         expect(lsof).to be_empty
       end
     end
+
+    context "when ignore_after is set" do
+      let(:quit_sleep) { 3 }
+
+      subject do
+        FileWatch::Tail.new(
+          :sincedb_path => sincedb_path,
+          :start_new_files_at => :beginning,
+          :stat_interval => 0.5,
+          :ignore_after => 2)
+      end
+
+      before :each do
+        subject.tail(file_path)
+        File.open(file_path, "wb") { |file|  file.write("line1\nline2\n") }
+      end
+
+      it "closes the file handles" do
+        buffer = []
+        subject.subscribe do |path, line|
+          if buffer.size.zero?
+            lsof = `lsof -p #{Process.pid} | grep #{file_path}`
+            expect(lsof).not_to be_empty
+          end
+          buffer.push([path, line])
+        end
+        lsof = `lsof -p #{Process.pid} | grep #{file_path}`
+        expect(lsof).to be_empty
+        expect(buffer).to eq([[file_path, "line1"], [file_path, "line2"]])
+      end
+    end
   end
 end

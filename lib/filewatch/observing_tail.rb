@@ -12,6 +12,7 @@ module FileWatch
       def created() end
       def error() end
       def eof() end
+      def timed_out() end
     end
 
     class NullObserver
@@ -49,6 +50,13 @@ module FileWatch
           end
           listener.deleted
           @files.delete(path)
+          @statcache.delete(path)
+        when :timeout
+          @logger.debug? && @logger.debug(":timeout for #{path}, deleted from @files")
+          if (deleted = @files.delete(path))
+            deleted.close
+          end
+          listener.timed_out
           @statcache.delete(path)
         else
           @logger.warn("unknown event type #{event} for #{path}")
