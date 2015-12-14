@@ -161,4 +161,21 @@ describe FileWatch::Watch do
     end
   end
 
+  context "when watch expiry is enabled and all files are already expired" do
+    let(:quit_sleep) { 3 }
+    let(:stat_interval) { 0.2 }
+
+    before do
+      File.open(file_path, "wb") { |file|  file.write("line1\nline2\n") }
+      subject.ignore_after = 1
+    end
+
+    it "yields only create_initial and one timeout file events" do
+      sleep 2
+      subject.watch(File.join(directory, "*"))
+      quit_proc.call
+      subscribe_proc.call
+      expect(results).to eq([[:create_initial, file_path], [:timeout, file_path]])
+    end
+  end
 end

@@ -80,6 +80,11 @@ module FileWatch
     end # def sincedb_record_uid
 
     private
+
+    def file_expired?(stat)
+      Time.now.to_i > (stat.mtime.to_i + @opts[:ignore_after])
+    end
+
     def _open_file(path, event)
       @logger.debug? && @logger.debug("_open_file: #{path}: opening")
       begin
@@ -106,6 +111,8 @@ module FileWatch
       stat = File::Stat.new(path)
       sincedb_record_uid = sincedb_record_uid(path, stat)
 
+      expired_based_size = file_expired?(stat) ? stat.size : 0
+
       if @sincedb.member?(sincedb_record_uid)
         last_size = @sincedb[sincedb_record_uid]
         @logger.debug? && @logger.debug("#{path}: sincedb last value #{@sincedb[sincedb_record_uid]}, cur size #{stat.size}")
@@ -119,8 +126,8 @@ module FileWatch
       elsif event == :create_initial && @files[path]
         if @opts[:start_new_files_at] == :beginning
           @logger.debug? && @logger.debug("#{path}: initial create, no sincedb, seeking to beginning of file")
-          @files[path].sysseek(0, IO::SEEK_SET)
-          @sincedb[sincedb_record_uid] = 0
+          @files[path].sysseek(expired_based_size, IO::SEEK_SET)
+          @sincedb[sincedb_record_uid] = expired_based_size
         else
           # seek to end
           @logger.debug? && @logger.debug("#{path}: initial create, no sincedb, seeking to end #{stat.size}")
@@ -128,7 +135,7 @@ module FileWatch
           @sincedb[sincedb_record_uid] = stat.size
         end
       elsif event == :create && @files[path]
-        @sincedb[sincedb_record_uid] = 0
+        @sincedb[sincedb_record_uid] = expired_based_size
       else
         @logger.debug? && @logger.debug("#{path}: staying at position 0, no sincedb")
       end

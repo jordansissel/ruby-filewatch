@@ -13,6 +13,7 @@ class TailObserver
 
     def accept(line)
       @lines << line
+      @calls << :accept
     end
 
     def deleted()
@@ -70,7 +71,7 @@ describe FileWatch::Tail do
     it "reads new lines off the file" do
       subject.subscribe(observer)
       expect(observer.listeners[file_path].lines).to eq(["line1", "line2"])
-      expect(observer.listeners[file_path].calls).to eq([:create, :eof, :eof])
+      expect(observer.listeners[file_path].calls).to eq([:create, :accept, :accept, :eof, :eof])
     end
   end
 
@@ -85,7 +86,7 @@ describe FileWatch::Tail do
     it "reads new lines off the file" do
       subject.subscribe(observer)
       expect(observer.listeners[file_path].lines).to eq(["lineA", "lineB"])
-      expect(observer.listeners[file_path].calls).to eq([:create, :eof, :eof])
+      expect(observer.listeners[file_path].calls).to eq([:create, :accept, :accept, :eof, :eof])
     end
 
   end
@@ -103,7 +104,7 @@ describe FileWatch::Tail do
     it "reads new lines off the file" do
       subject.subscribe(observer)
       expect(observer.listeners[file_path].lines).to eq(["lineC", "lineD"])
-      expect(observer.listeners[file_path].calls).to eq([:create, :eof, :eof])
+      expect(observer.listeners[file_path].calls).to eq([:create, :accept, :accept, :eof, :eof])
     end
   end
 
@@ -121,7 +122,7 @@ describe FileWatch::Tail do
     it "should read the lines and call deleted on listener" do
       subject.subscribe(observer)
       expect(observer.listeners[file_path].lines).to eq(["line1", "line2"])
-      expect(observer.listeners[file_path].calls).to eq([:create, :eof, :eof, :eof, :delete])
+      expect(observer.listeners[file_path].calls).to eq([:create, :accept, :accept, :eof, :eof, :eof, :delete])
     end
   end
 
@@ -156,7 +157,7 @@ describe FileWatch::Tail do
       it "picks off from where it stopped" do
         expect { subject.subscribe(observer) }.not_to raise_error
         expect(observer.listeners[file_path].lines).to eq(["line3", "line4"])
-        expect(observer.listeners[file_path].calls).to eq([:eof])
+        expect(observer.listeners[file_path].calls).to eq([:accept, :accept, :eof])
       end
 
       it "updates on tail.quit" do
@@ -181,7 +182,7 @@ describe FileWatch::Tail do
 
     it "should read all the lines entirely" do
       subject.subscribe(observer)
-      expect(observer.listeners[file_path].calls).to eq([:create, :eof, :eof])
+      expect(observer.listeners[file_path].calls).to eq([:create, :accept, :accept, :accept, :eof, :eof])
       expect(observer.listeners[file_path].lines).to eq([lineA, lineB, lineC])
     end
   end
@@ -194,9 +195,15 @@ describe FileWatch::Tail do
 
     subject { FileWatch::Tail.new_observing(:sincedb_path => sincedb_path, :start_new_files_at => position, :stat_interval => 0) }
 
+    let(:before_proc) do
+      lambda do
+        File.open(file_path, "wb") { |file|  file.write("line1\nline2\n") }
+        subject.tail(File.join(directory, "*"))
+      end
+    end
+
     before :each do
-      File.open(file_path, "wb") { |file|  file.write("line1\nline2\n") }
-      subject.tail(File.join(directory, "*"))
+      before_proc.call
     end
 
     after :each do
@@ -206,7 +213,7 @@ describe FileWatch::Tail do
     it "reads new lines off the file" do
       subject.subscribe(observer)
       expect(observer.listeners[file_path].lines).to eq(["line1", "line2"])
-      expect(observer.listeners[file_path].calls).to eq([:create, :eof, :eof])
+      expect(observer.listeners[file_path].calls).to eq([:create, :accept, :accept, :eof, :eof])
     end
 
     context "when a file is renamed" do
@@ -219,6 +226,39 @@ describe FileWatch::Tail do
         File.rename(file_path, file_path + ".bak")
         expect(observer.listeners[file_path].lines).to eq(before_lines)
         expect(observer.listeners[file_path].calls).to eq(before_calls)
+      end
+    end
+
+    context "when a expired file is present" do
+      let(:before_proc) do
+        lambda do
+          File.open(file_path, "wb") { |file|  file.write("line1\nline2\n") }
+          sleep 3
+          subject.tail(File.join(directory, "*"))
+        end
+      end
+      let(:quit_sleep) { 4 }
+
+      subject { FileWatch::Tail.new_observing(:sincedb_path => sincedb_path, :start_new_files_at => position, :stat_interval => 0.1, :ignore_after => 2) }
+
+      it "the file is ignored" do
+        subject.subscribe(observer)
+        expect(observer.listeners[file_path].lines).to eq([])
+        expect(observer.listeners[file_path].calls).to eq([:create, :eof, :timed_out])
+      end
+
+      context "and then it is written to" do
+        let(:quit_sleep) { 5 }
+
+        it "reads new lines off the file" do
+          Thread.new do
+            sleep 1
+            File.open(file_path, "ab") { |file|  file.write("line3\nline4\n") }
+          end
+          subject.subscribe(observer)
+          expect(observer.listeners[file_path].lines).to eq(["line3", "line4"])
+          expect(observer.listeners[file_path].calls).to eq([:create, :eof, :timed_out, :accept, :accept, :eof])
+        end
       end
     end
   end
@@ -242,7 +282,7 @@ describe FileWatch::Tail do
       it "closes the file handle" do
         subject.subscribe(observer)
         expect(observer.listeners[file_path].lines).to eq(["line1", "line2"])
-        expect(observer.listeners[file_path].calls).to eq([:create, :eof, :eof])
+        expect(observer.listeners[file_path].calls).to eq([:create, :accept, :accept, :eof, :eof])
         lsof = `lsof -p #{Process.pid} | grep #{file_path}`
         expect(lsof).to be_empty
       end
@@ -267,7 +307,7 @@ describe FileWatch::Tail do
       it "closes the file handle" do
         subject.subscribe(observer)
         expect(observer.listeners[file_path].lines).to eq(["line1", "line2"])
-        expect(observer.listeners[file_path].calls).to eq([:create, :eof, :eof, :timed_out])
+        expect(observer.listeners[file_path].calls).to eq([:create, :accept, :accept, :eof, :eof, :timed_out])
         lsof = `lsof -p #{Process.pid} | grep #{file_path}`
         expect(lsof).to be_empty
       end

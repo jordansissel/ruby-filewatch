@@ -190,8 +190,16 @@ module FileWatch
     private
     def expired?(stat, watched_value)
       return false unless expiry_enabled?
-      watched_value.size == stat.size &&
-        Time.now.to_i > (stat.mtime.to_i + @ignore_after)
+      watched_value.size == stat.size && file_expired?(stat)
+    end
+
+    def discover_expired?(stat)
+      return false unless expiry_enabled?
+      file_expired?(stat)
+    end
+
+    def file_expired?(stat)
+      Time.now.to_i > (stat.mtime.to_i + @ignore_after)
     end
 
     private
@@ -215,7 +223,15 @@ module FileWatch
         next if skip
 
         stat = File::Stat.new(file)
-        @files[file] = WatchedFile.new(file, inode(file, stat), initial)
+        watched_file = WatchedFile.new(file, inode(file, stat), initial)
+
+        if discover_expired?(stat)
+          msg = "_discover_file: #{file}: skipping because it was last modified more than #{@ignore_after} seconds ago"
+          @logger.debug? && @logger.debug(msg)
+          watched_file.size = stat.size
+        end
+
+        @files[file] = watched_file
       end
     end # def _discover_file
 
