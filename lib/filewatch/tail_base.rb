@@ -45,8 +45,8 @@ module FileWatch
         :discover_interval => 5,
         :exclude => [],
         :start_new_files_at => :end,
-        :delimiter => "\n",
-        :ignore_after => 24 * 60 * 60
+        # :ignore_after => 24 * 60 * 60,
+        :delimiter => "\n"
       }.merge(opts)
       if !@opts.include?(:sincedb_path)
         @opts[:sincedb_path] = File.join(ENV["HOME"], ".sincedb") if ENV.include?("HOME")
@@ -82,6 +82,7 @@ module FileWatch
     private
 
     def file_expired?(stat)
+      return false if @opts[:ignore_after].nil?
       Time.now.to_i > (stat.mtime.to_i + @opts[:ignore_after])
     end
 
