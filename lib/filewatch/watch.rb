@@ -244,8 +244,8 @@ module FileWatch
         next if skip
 
         stat = File::Stat.new(file)
+        # let the caller build the object in its context
         watched_file = yield(file, stat)
-        # watched_file = WatchedFile.new(file, inode(file, stat), initial)
 
         if discover_expired?(stat)
           msg = "_discover_file: #{file}: skipping because it was last modified more than #{@ignore_after} seconds ago"
