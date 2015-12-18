@@ -83,7 +83,10 @@ module FileWatch
 
     def file_expired?(stat)
       return false if @opts[:ignore_after].nil?
-      Time.now.to_i > (stat.mtime.to_i + @opts[:ignore_after])
+      # (Time.now - stat.mtime) <- in jruby, this does int and float
+      # conversions before the subtraction and returns a float.
+      # so use all ints instead
+      (Time.now.to_i - stat.mtime.to_i) > @opts[:ignore_after]
     end
 
     def _open_file(path, event)

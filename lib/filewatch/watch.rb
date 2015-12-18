@@ -6,7 +6,15 @@ end
 module FileWatch
   class Watch
     class WatchedFile
-      attr_accessor :size, :inode
+      def self.new_initial(path, inode)
+        new(path, inode, true)
+      end
+
+      def self.new_ongoing(path, inode)
+        new(path, inode, false)
+      end
+
+      attr_reader :size, :inode
       attr_writer :create_sent, :initial, :timeout_sent
 
       attr_reader :path
@@ -15,6 +23,11 @@ module FileWatch
         @path = path
         @size, @create_sent, @timeout_sent = 0, false, false
         @inode, @initial = inode, initial
+      end
+
+      def update(stat, inode = nil)
+        @size = stat.size
+        @inode = inode if inode
       end
 
       def create_sent?
@@ -45,13 +58,16 @@ module FileWatch
       end
       @watching = []
       @exclude = []
-      @files = Hash.new { |h, k| h[k] = WatchedFile.new(nil, false) }
+      @files = Hash.new { |h, k| h[k] = WatchedFile.new(k, false, false) }
       @unwatched = Hash.new
       # we need to be threadsafe about the mutation
       # of the above 2 ivars because the public
       # methods each, discover, watch and unwatch
       # can be called from different threads.
       @lock = Mutex.new
+      # we need to be threadsafe about the quit mutation
+      @quit = false
+      @quit_lock = Mutex.new
     end # def initialize
 
     public
@@ -64,7 +80,9 @@ module FileWatch
       synchronized do
         if !@watching.member?(path)
           @watching << path
-          _discover_file(path, true)
+          _discover_file(path) do |filepath, stat|
+            WatchedFile.new_initial(filepath, inode(filepath, stat))
+          end
         end
       end
       return true
@@ -155,8 +173,7 @@ module FileWatch
             yield(:modify, path)
           end
 
-          watched_value.size = stat.size
-          watched_value.inode = inode
+          watched_value.update(stat, inode)
         end
       end
     end # def each
@@ -165,7 +182,9 @@ module FileWatch
     def discover
       synchronized do
         @watching.each do |path|
-          _discover_file(path)
+          _discover_file(path) do |filepath, stat|
+            WatchedFile.new_ongoing(filepath, inode(filepath, stat))
+          end
         end
       end
     end
@@ -173,8 +192,8 @@ module FileWatch
     public
     def subscribe(stat_interval = 1, discover_interval = 5, &block)
       glob = 0
-      @quit = false
-      while !@quit
+      unquit
+      while !quit?
         each(&block)
 
         glob += 1
@@ -189,21 +208,23 @@ module FileWatch
 
     private
     def expired?(stat, watched_value)
-      return false unless expiry_enabled?
-      watched_value.size == stat.size && file_expired?(stat)
+      file_expired?(stat) && watched_value.size == stat.size
     end
 
     def discover_expired?(stat)
-      return false unless expiry_enabled?
       file_expired?(stat)
     end
 
     def file_expired?(stat)
-      Time.now.to_i > (stat.mtime.to_i + @ignore_after)
+      return false unless expiry_enabled?
+      # (Time.now - stat.mtime) <- in jruby, this does int and float
+      # conversions before the subtraction and returns a float.
+      # so use all ints instead
+      (Time.now.to_i - stat.mtime.to_i) > @ignore_after
     end
 
     private
-    def _discover_file(path, initial=false)
+    def _discover_file(path)
       _globbed_files(path).each do |file|
         next if @files.member?(file)
         next if @unwatched.member?(file)
@@ -223,12 +244,13 @@ module FileWatch
         next if skip
 
         stat = File::Stat.new(file)
-        watched_file = WatchedFile.new(file, inode(file, stat), initial)
+        watched_file = yield(file, stat)
+        # watched_file = WatchedFile.new(file, inode(file, stat), initial)
 
         if discover_expired?(stat)
           msg = "_discover_file: #{file}: skipping because it was last modified more than #{@ignore_after} seconds ago"
           @logger.debug? && @logger.debug(msg)
-          watched_file.size = stat.size
+          watched_file.update(stat)
         end
 
         @files[file] = watched_file
@@ -257,9 +279,19 @@ module FileWatch
       @lock.synchronize { block.call }
     end
 
+    private
+    def quit?
+      @quit_lock.synchronize { @quit }
+    end
+
+    private
+    def unquit
+      @quit_lock.synchronize { @quit = false }
+    end
+
     public
     def quit
-      @quit = true
+      @quit_lock.synchronize { @quit = true }
     end # def quit
   end # class Watch
 end # module FileWatch

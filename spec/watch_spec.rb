@@ -126,7 +126,7 @@ describe FileWatch::Watch do
   end
 
   context "when watch expiry is enabled" do
-    let(:quit_sleep) { 3 }
+    let(:quit_sleep) { 3.5 }
     let(:stat_interval) { 0.2 }
 
     before do
