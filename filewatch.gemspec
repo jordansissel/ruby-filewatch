@@ -1,12 +1,12 @@
 Gem::Specification.new do |spec|
   files = []
-  dirs = %w{lib samples spec test bin}
+  dirs = %w{lib samples test bin}
   dirs.each do |dir|
     files += Dir["#{dir}/**/*"]
   end
 
   spec.name = "filewatch"
-  spec.version = "0.6.7"
+  spec.version = "0.6.8"
   spec.summary = "filewatch - file watching for ruby"
   spec.description = "Watch files and directories in ruby. Also supports tailing and glob file patterns."
   spec.files = files
@@ -21,4 +21,3 @@ Gem::Specification.new do |spec|
 
   spec.add_development_dependency "stud"
 end
-

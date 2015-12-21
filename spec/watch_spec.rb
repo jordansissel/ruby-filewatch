@@ -15,24 +15,40 @@ describe FileWatch::Watch do
   let(:file_path) { File.join(directory, "1.log") }
   let(:loggr)     { double("loggr", :debug? => true) }
   let(:results)   { [] }
+  let(:quit_sleep) { 1 }
+  let(:stat_interval) { 0.1 }
+  let(:discover_interval) { 4 }
+  let(:write_3_and_4_sleep) { 0.5 }
+
   let(:quit_proc) do
     lambda do
       Thread.new do
-        sleep 1
+        sleep quit_sleep
         subject.quit
       end
     end
   end
+
   let(:subscribe_proc) do
     lambda do
-      subject.subscribe(0.1, 4) do |event, path|
+      subject.subscribe(stat_interval, discover_interval) do |event, path|
         results.push([event, path])
       end
     end
   end
+
   let(:write_lines_1_and_2_proc) do
     lambda do
       File.open(file_path, "wb") { |file|  file.write("line1\nline2\n") }
+    end
+  end
+
+  let(:write_lines_3_and_4_proc) do
+    lambda do
+      Thread.new do
+        sleep write_3_and_4_sleep
+        File.open(file_path, "ab") { |file|  file.write("line3\nline4\n") }
+      end
     end
   end
 
@@ -41,7 +57,6 @@ describe FileWatch::Watch do
   before do
     allow(loggr).to receive(:debug)
   end
-
   after do
     FileUtils.rm_rf(directory)
   end
@@ -69,14 +84,7 @@ describe FileWatch::Watch do
   end
 
   context "when watching a directory with files and data is appended" do
-    let(:write_lines_3_and_4_proc) do
-      lambda do
-        Thread.new do
-          sleep 0.5
-          File.open(file_path, "ab") { |file|  file.write("line3\nline4\n") }
-        end
-      end
-    end
+
 
     it "yields create_initial and two modified file events" do
       write_lines_1_and_2_proc.call
@@ -117,4 +125,57 @@ describe FileWatch::Watch do
     end
   end
 
+  context "when watch expiry is enabled" do
+    let(:quit_sleep) { 3.5 }
+    let(:stat_interval) { 0.2 }
+
+    before do
+      subject.ignore_after = 2
+    end
+
+    it "yields create_initial, one modify and one timeout file events" do
+      write_lines_1_and_2_proc.call
+      subject.watch(File.join(directory, "*"))
+      quit_proc.call
+      subscribe_proc.call
+      expect(results).to eq([[:create_initial, file_path], [:modify, file_path], [:timeout, file_path]])
+    end
+  end
+
+  context "when watch expiry is enabled and after timeout the file is appended to" do
+    let(:quit_sleep) { 5 }
+    let(:stat_interval) { 0.2 }
+    let(:write_3_and_4_sleep) { 3.5 }
+
+    before do
+      subject.ignore_after = 2
+    end
+
+    it "yields create_initial, two modify and one timeout file events" do
+      write_lines_1_and_2_proc.call
+      write_lines_3_and_4_proc.call # delayed async call
+      subject.watch(File.join(directory, "*"))
+      quit_proc.call
+      subscribe_proc.call
+      expect(results).to eq([[:create_initial, file_path], [:modify, file_path], [:timeout, file_path], [:modify, file_path]])
+    end
+  end
+
+  context "when watch expiry is enabled and all files are already expired" do
+    let(:quit_sleep) { 3 }
+    let(:stat_interval) { 0.2 }
+
+    before do
+      File.open(file_path, "wb") { |file|  file.write("line1\nline2\n") }
+      subject.ignore_after = 1
+    end
+
+    it "yields only create_initial and one timeout file events" do
+      sleep 2
+      subject.watch(File.join(directory, "*"))
+      quit_proc.call
+      subscribe_proc.call
+      expect(results).to eq([[:create_initial, file_path], [:timeout, file_path]])
+    end
+  end
 end
