@@ -126,18 +126,18 @@ module FileWatch
     def each(&block)
       synchronized do
         # Send any creates.
-        @files.each do |path, watched_value|
-          if !watched_value.create_sent?
-            if watched_value.initial?
+        @files.each do |path, watched_file|
+          if !watched_file.create_sent?
+            if watched_file.initial?
               yield(:create_initial, path)
             else
               yield(:create, path)
             end
-            watched_value.create_sent = true
+            watched_file.create_sent = true
           end
         end
 
-        @files.each do |path, watched_value|
+        @files.each do |path, watched_file|
           begin
             stat = File::Stat.new(path)
           rescue Errno::ENOENT
@@ -148,20 +148,20 @@ module FileWatch
             next
           end
 
-          if expired?(stat, watched_value)
-            if !watched_value.timeout_sent?
+          if expired?(stat, watched_file)
+            if !watched_file.timeout_sent?
               @logger.debug? && @logger.debug("#{path}: file expired")
               yield(:timeout, path)
-              watched_value.timeout_sent = true
+              watched_file.timeout_sent = true
             end
             next
           end
 
           inode = inode(path,stat)
-          old_size = watched_value.size
+          old_size = watched_file.size
 
-          if inode != watched_value.inode
-            @logger.debug? && @logger.debug("#{path}: old inode was #{watched_value.inode.inspect}, new is #{inode.inspect}")
+          if inode != watched_file.inode
+            @logger.debug? && @logger.debug("#{path}: old inode was #{watched_file.inode.inspect}, new is #{inode.inspect}")
             yield(:delete, path)
             yield(:create, path)
           elsif stat.size < old_size
@@ -173,7 +173,7 @@ module FileWatch
             yield(:modify, path)
           end
 
-          watched_value.update(stat, inode)
+          watched_file.update(stat, inode)
         end
       end
     end # def each
@@ -192,7 +192,7 @@ module FileWatch
     public
     def subscribe(stat_interval = 1, discover_interval = 5, &block)
       glob = 0
-      unquit
+      reset_quit
       while !quit?
         each(&block)
 
@@ -207,8 +207,8 @@ module FileWatch
     end # def subscribe
 
     private
-    def expired?(stat, watched_value)
-      file_expired?(stat) && watched_value.size == stat.size
+    def expired?(stat, watched_file)
+      file_expired?(stat) && watched_file.size == stat.size
     end
 
     def discover_expired?(stat)
@@ -285,7 +285,7 @@ module FileWatch
     end
 
     private
-    def unquit
+    def reset_quit
       @quit_lock.synchronize { @quit = false }
     end
 
