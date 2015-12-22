@@ -45,7 +45,7 @@ module FileWatch
       def to_s() inspect; end
     end
 
-    attr_accessor :logger, :ignore_after
+    attr_accessor :logger, :close_older, :ignore_older
 
     public
     def initialize(opts={})
@@ -148,7 +148,7 @@ module FileWatch
             next
           end
 
-          if expired?(stat, watched_file)
+          if file_closable?(stat, watched_file)
             if !watched_file.timeout_sent?
               @logger.debug? && @logger.debug("#{path}: file expired")
               yield(:timeout, path)
@@ -207,20 +207,24 @@ module FileWatch
     end # def subscribe
 
     private
-    def expired?(stat, watched_file)
-      file_expired?(stat) && watched_file.size == stat.size
+    def file_closable?(stat, watched_file)
+      file_can_close?(stat) && watched_file.size == stat.size
     end
 
-    def discover_expired?(stat)
-      file_expired?(stat)
-    end
-
-    def file_expired?(stat)
-      return false unless expiry_enabled?
+    def file_ignorable?(stat)
+      return false unless expiry_ignore_enabled?
       # (Time.now - stat.mtime) <- in jruby, this does int and float
       # conversions before the subtraction and returns a float.
       # so use all ints instead
-      (Time.now.to_i - stat.mtime.to_i) > @ignore_after
+      (Time.now.to_i - stat.mtime.to_i) > @ignore_older
+    end
+
+    def file_can_close?(stat)
+      return false unless expiry_close_enabled?
+      # (Time.now - stat.mtime) <- in jruby, this does int and float
+      # conversions before the subtraction and returns a float.
+      # so use all ints instead
+      (Time.now.to_i - stat.mtime.to_i) > @close_older
     end
 
     private
@@ -247,9 +251,13 @@ module FileWatch
         # let the caller build the object in its context
         watched_file = yield(file, stat)
 
-        if discover_expired?(stat)
-          msg = "_discover_file: #{file}: skipping because it was last modified more than #{@ignore_after} seconds ago"
+        if file_ignorable?(stat)
+          msg = "_discover_file: #{file}: skipping because it was last modified more than #{@ignore_older} seconds ago"
           @logger.debug? && @logger.debug(msg)
+          # we update the size on discovery here
+          # so the existing contents are not read.
+          # because, normally, a newly discovered file will
+          # have a watched_file size of zero
           watched_file.update(stat)
         end
 
@@ -258,8 +266,13 @@ module FileWatch
     end # def _discover_file
 
     private
-    def expiry_enabled?
-      !@ignore_after.nil?
+    def expiry_close_enabled?
+      !@close_older.nil?
+    end
+
+    private
+    def expiry_ignore_enabled?
+      !@ignore_older.nil?
     end
 
     private
