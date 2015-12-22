@@ -272,7 +272,7 @@ describe FileWatch::Tail do
 
   if RbConfig::CONFIG['host_os'] !~ /mswin|mingw|cygwin/
     describe "open or closed file handling" do
-      let(:lsof_before_quit)       { [] }
+      let(:lsof_before_quit) { [] }
       let(:quit_proc) do
         lambda do
           Thread.new do
