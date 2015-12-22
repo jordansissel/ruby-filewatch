@@ -15,9 +15,10 @@ describe FileWatch::Tail do
   let(:file_path) { f = Stud::Temporary.pathname }
   let(:sincedb_path) { Stud::Temporary.pathname }
   let(:quit_sleep) { 0.5 }
+  let(:quit_proc) { lambda { subject.quit } }
 
   before :each do
-    Thread.new(subject) { sleep quit_sleep; subject.quit } # force the subscribe loop to exit
+    Thread.new(subject) { sleep quit_sleep; quit_proc.call } # force the subscribe loop to exit
   end
 
   after :each do
@@ -233,15 +234,22 @@ describe FileWatch::Tail do
       end
     end
 
-    context "when ignore_after is set" do
+    context "when close_older is set" do
       let(:quit_sleep) { 3 }
+      let(:lsof_before_quit) { [] }
+      let(:quit_proc) do
+        lambda do
+          lsof_before_quit.push `lsof -p #{Process.pid} | grep #{file_path}`
+          subject.quit
+        end
+      end
 
       subject do
         FileWatch::Tail.new(
           :sincedb_path => sincedb_path,
           :start_new_files_at => :beginning,
-          :stat_interval => 0.5,
-          :ignore_after => 2)
+          :stat_interval => 0.2,
+          :close_older => 1)
       end
 
       before :each do
@@ -254,12 +262,13 @@ describe FileWatch::Tail do
         subject.subscribe do |path, line|
           if buffer.size.zero?
             lsof = `lsof -p #{Process.pid} | grep #{file_path}`
+            # expect that the file is open
             expect(lsof).not_to be_empty
           end
           buffer.push([path, line])
         end
-        lsof = `lsof -p #{Process.pid} | grep #{file_path}`
-        expect(lsof).to be_empty
+        # expect that the file is closed before quit closes it
+        expect(lsof_before_quit.first).to be_empty
         expect(buffer).to eq([[file_path, "line1"], [file_path, "line2"]])
       end
     end

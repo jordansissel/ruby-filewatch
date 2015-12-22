@@ -55,9 +55,14 @@ describe FileWatch::Tail do
   let(:file_path) { f = Stud::Temporary.pathname }
   let(:sincedb_path) { Stud::Temporary.pathname }
   let(:quit_sleep) { 0.1 }
+  let(:quit_proc) do
+    lambda do
+      Thread.new {sleep quit_sleep; subject.quit }
+    end
+  end
 
   before do
-    Thread.new {sleep quit_sleep; subject.quit }
+    quit_proc.call
   end
 
   context "when watching a new file" do
@@ -229,7 +234,7 @@ describe FileWatch::Tail do
       end
     end
 
-    context "when a expired file is present" do
+    context "when a file that was modified more than 2 seconds ago is present" do
       let(:before_proc) do
         lambda do
           File.open(file_path, "wb") { |file|  file.write("line1\nline2\n") }
@@ -239,12 +244,14 @@ describe FileWatch::Tail do
       end
       let(:quit_sleep) { 4 }
 
-      subject { FileWatch::Tail.new_observing(:sincedb_path => sincedb_path, :start_new_files_at => position, :stat_interval => 0.1, :ignore_after => 2) }
+      subject { FileWatch::Tail.new_observing(
+        :sincedb_path => sincedb_path, :start_new_files_at => position,
+        :stat_interval => 0.1, :ignore_older => 2) }
 
       it "the file is ignored" do
         subject.subscribe(observer)
         expect(observer.listeners[file_path].lines).to eq([])
-        expect(observer.listeners[file_path].calls).to eq([:create, :eof, :timed_out])
+        expect(observer.listeners[file_path].calls).to eq([:create, :eof])
       end
 
       context "and then it is written to" do
@@ -257,59 +264,96 @@ describe FileWatch::Tail do
           end
           subject.subscribe(observer)
           expect(observer.listeners[file_path].lines).to eq(["line3", "line4"])
-          expect(observer.listeners[file_path].calls).to eq([:create, :eof, :timed_out, :accept, :accept, :eof])
+          expect(observer.listeners[file_path].calls).to eq([:create, :eof, :accept, :accept, :eof])
         end
       end
     end
   end
 
   if RbConfig::CONFIG['host_os'] !~ /mswin|mingw|cygwin/
-    context "when quiting" do
-      let(:quit_sleep) { 0.75 }
-
-      subject do
-        FileWatch::Tail.new_observing(
-          :sincedb_path => sincedb_path,
-          :start_new_files_at => :beginning,
-          :stat_interval => 0.1)
+    describe "open or closed file handling" do
+      let(:lsof_before_quit)       { [] }
+      let(:quit_proc) do
+        lambda do
+          Thread.new do
+            sleep quit_sleep
+            lsof_before_quit.push `lsof -p #{Process.pid} | grep #{file_path}`
+            subject.quit
+          end
+        end
       end
 
-      before :each do
-        subject.tail(file_path)
-        File.open(file_path, "wb") { |file|  file.write("line1\nline2\n") }
+      context "when quiting" do
+        let(:quit_sleep) { 0.75 }
+
+        subject do
+          FileWatch::Tail.new_observing(
+            :sincedb_path => sincedb_path,
+            :start_new_files_at => :beginning,
+            :stat_interval => 0.1)
+        end
+
+        before :each do
+          subject.tail(file_path)
+          File.open(file_path, "wb") { |file|  file.write("line1\nline2\n") }
+        end
+
+        it "closes all files" do
+          subject.subscribe(observer)
+          expect(observer.listeners[file_path].lines).to eq(["line1", "line2"])
+          expect(observer.listeners[file_path].calls).to eq([:create, :accept, :accept, :eof, :eof])
+          lsof_after_quit = `lsof -p #{Process.pid} | grep #{file_path}`
+          expect(lsof_after_quit).to be_empty
+        end
       end
 
-      it "closes the file handle" do
-        subject.subscribe(observer)
-        expect(observer.listeners[file_path].lines).to eq(["line1", "line2"])
-        expect(observer.listeners[file_path].calls).to eq([:create, :accept, :accept, :eof, :eof])
-        lsof = `lsof -p #{Process.pid} | grep #{file_path}`
-        expect(lsof).to be_empty
+      context "when close_older is not set" do
+        let(:quit_sleep) { 1.5 }
+
+        subject do
+          FileWatch::Tail.new_observing(
+            :sincedb_path => sincedb_path,
+            :start_new_files_at => :beginning,
+            :stat_interval => 0.1)
+        end
+
+        before :each do
+          subject.tail(file_path)
+          File.open(file_path, "wb") { |file|  file.write("line1\nline2\n") }
+        end
+
+        it "the files are open before quitting" do
+          subject.subscribe(observer)
+          expect(observer.listeners[file_path].lines).to eq(["line1", "line2"])
+          expect(observer.listeners[file_path].calls).to eq([:create, :accept, :accept, :eof, :eof])
+          expect(lsof_before_quit.first).not_to be_empty
+          lsof_after_quit = `lsof -p #{Process.pid} | grep #{file_path}`
+          expect(lsof_after_quit).to be_empty
+        end
       end
-    end
 
-    context "when ignore_after is set" do
-      let(:quit_sleep) { 3.5 }
+      context "when close_older is set" do
+        let(:quit_sleep) { 2.5 }
 
-      subject do
-        FileWatch::Tail.new_observing(
-          :sincedb_path => sincedb_path,
-          :start_new_files_at => :beginning,
-          :stat_interval => 0.1,
-          :ignore_after => 2)
-      end
+        subject do
+          FileWatch::Tail.new_observing(
+            :sincedb_path => sincedb_path,
+            :start_new_files_at => :beginning,
+            :stat_interval => 0.1,
+            :close_older => 1)
+        end
 
-      before :each do
-        subject.tail(file_path)
-        File.open(file_path, "wb") { |file|  file.write("line1\nline2\n") }
-      end
+        before :each do
+          subject.tail(file_path)
+          File.open(file_path, "wb") { |file|  file.write("line1\nline2\n") }
+        end
 
-      it "closes the file handle" do
-        subject.subscribe(observer)
-        expect(observer.listeners[file_path].lines).to eq(["line1", "line2"])
-        expect(observer.listeners[file_path].calls).to eq([:create, :accept, :accept, :eof, :eof, :timed_out])
-        lsof = `lsof -p #{Process.pid} | grep #{file_path}`
-        expect(lsof).to be_empty
+        it "the files are closed before quitting" do
+          subject.subscribe(observer)
+          expect(observer.listeners[file_path].lines).to eq(["line1", "line2"])
+          expect(observer.listeners[file_path].calls).to eq([:create, :accept, :accept, :eof, :eof, :timed_out])
+          expect(lsof_before_quit.first).to be_empty
+        end
       end
     end
   end

@@ -125,15 +125,15 @@ describe FileWatch::Watch do
     end
   end
 
-  context "when watch expiry is enabled" do
+  context "when close older expiry is enabled" do
     let(:quit_sleep) { 3.5 }
     let(:stat_interval) { 0.2 }
 
     before do
-      subject.ignore_after = 2
+      subject.close_older = 2
     end
 
-    it "yields create_initial, one modify and one timeout file events" do
+    it "yields create_initial, modify and timeout file events" do
       write_lines_1_and_2_proc.call
       subject.watch(File.join(directory, "*"))
       quit_proc.call
@@ -142,16 +142,16 @@ describe FileWatch::Watch do
     end
   end
 
-  context "when watch expiry is enabled and after timeout the file is appended to" do
+  context "when close older expiry is enabled and after timeout the file is appended to" do
     let(:quit_sleep) { 5 }
     let(:stat_interval) { 0.2 }
     let(:write_3_and_4_sleep) { 3.5 }
 
     before do
-      subject.ignore_after = 2
+      subject.close_older = 2
     end
 
-    it "yields create_initial, two modify and one timeout file events" do
+    it "yields create_initial, modify, timeout and modify file events" do
       write_lines_1_and_2_proc.call
       write_lines_3_and_4_proc.call # delayed async call
       subject.watch(File.join(directory, "*"))
@@ -161,21 +161,21 @@ describe FileWatch::Watch do
     end
   end
 
-  context "when watch expiry is enabled and all files are already expired" do
+  context "when ignore older expiry is enabled and all files are already expired" do
     let(:quit_sleep) { 3 }
     let(:stat_interval) { 0.2 }
 
     before do
       File.open(file_path, "wb") { |file|  file.write("line1\nline2\n") }
-      subject.ignore_after = 1
+      subject.ignore_older = 1
     end
 
-    it "yields only create_initial and one timeout file events" do
+    it "yields only create_initial file event" do
       sleep 2
       subject.watch(File.join(directory, "*"))
       quit_proc.call
       subscribe_proc.call
-      expect(results).to eq([[:create_initial, file_path], [:timeout, file_path]])
+      expect(results).to eq([[:create_initial, file_path]])
     end
   end
 end

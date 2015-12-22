@@ -45,7 +45,6 @@ module FileWatch
         :discover_interval => 5,
         :exclude => [],
         :start_new_files_at => :end,
-        # :ignore_after => 24 * 60 * 60,
         :delimiter => "\n"
       }.merge(opts)
       if !@opts.include?(:sincedb_path)
@@ -56,7 +55,8 @@ module FileWatch
         raise NoSinceDBPathGiven.new("No HOME or SINCEDB_PATH set in environment. I need one of these set so I can keep track of the files I am following.")
       end
       @watch.exclude(@opts[:exclude])
-      @watch.ignore_after = @opts[:ignore_after]
+      @watch.close_older = @opts[:close_older]
+      @watch.ignore_older = @opts[:ignore_older]
 
       _sincedb_open
     end # def initialize
@@ -82,11 +82,11 @@ module FileWatch
     private
 
     def file_expired?(stat)
-      return false if @opts[:ignore_after].nil?
+      return false if @opts[:ignore_older].nil?
       # (Time.now - stat.mtime) <- in jruby, this does int and float
       # conversions before the subtraction and returns a float.
       # so use all ints instead
-      (Time.now.to_i - stat.mtime.to_i) > @opts[:ignore_after]
+      (Time.now.to_i - stat.mtime.to_i) > @opts[:ignore_older]
     end
 
     def _open_file(path, event)
