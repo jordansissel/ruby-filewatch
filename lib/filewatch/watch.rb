@@ -148,7 +148,7 @@ module FileWatch
             next
           end
 
-          if close_expired?(stat, watched_file)
+          if file_closable?(stat, watched_file)
             if !watched_file.timeout_sent?
               @logger.debug? && @logger.debug("#{path}: file expired")
               yield(:timeout, path)
@@ -207,11 +207,11 @@ module FileWatch
     end # def subscribe
 
     private
-    def close_expired?(stat, watched_file)
-      file_close?(stat) && watched_file.size == stat.size
+    def file_closable?(stat, watched_file)
+      file_can_close?(stat) && watched_file.size == stat.size
     end
 
-    def discover_ignore?(stat)
+    def file_ignorable?(stat)
       return false unless expiry_ignore_enabled?
       # (Time.now - stat.mtime) <- in jruby, this does int and float
       # conversions before the subtraction and returns a float.
@@ -219,7 +219,7 @@ module FileWatch
       (Time.now.to_i - stat.mtime.to_i) > @ignore_older
     end
 
-    def file_close?(stat)
+    def file_can_close?(stat)
       return false unless expiry_close_enabled?
       # (Time.now - stat.mtime) <- in jruby, this does int and float
       # conversions before the subtraction and returns a float.
@@ -251,7 +251,7 @@ module FileWatch
         # let the caller build the object in its context
         watched_file = yield(file, stat)
 
-        if discover_ignore?(stat)
+        if file_ignorable?(stat)
           msg = "_discover_file: #{file}: skipping because it was last modified more than #{@ignore_older} seconds ago"
           @logger.debug? && @logger.debug(msg)
           # we update the size on discovery here
