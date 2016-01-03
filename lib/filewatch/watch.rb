@@ -30,6 +30,10 @@ module FileWatch
         @inode = inode if inode
       end
 
+      def clear_timeout
+        @timeout_sent = false
+      end
+
       def create_sent?
         @create_sent
       end
@@ -164,16 +168,19 @@ module FileWatch
             @logger.debug? && @logger.debug("#{path}: old inode was #{watched_file.inode.inspect}, new is #{inode.inspect}")
             yield(:delete, path)
             yield(:create, path)
+            watched_file.update(stat, inode)
           elsif stat.size < old_size
             @logger.debug? && @logger.debug("#{path}: file rolled, new size is #{stat.size}, old size #{old_size}")
             yield(:delete, path)
             yield(:create, path)
+            watched_file.update(stat, inode)
           elsif stat.size > old_size
             @logger.debug? && @logger.debug("#{path}: file grew, old size #{old_size}, new size #{stat.size}")
             yield(:modify, path)
+            # if there is a material change to the file, re-enable timeout
+            watched_file.clear_timeout
+            watched_file.update(stat, inode)
           end
-
-          watched_file.update(stat, inode)
         end
       end
     end # def each

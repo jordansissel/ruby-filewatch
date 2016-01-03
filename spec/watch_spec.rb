@@ -142,8 +142,8 @@ describe FileWatch::Watch do
     end
   end
 
-  context "when close older expiry is enabled and after timeout the file is appended to" do
-    let(:quit_sleep) { 5 }
+  context "when close older expiry is enabled and after timeout the file is appended-to" do
+    let(:quit_sleep) { 6.5 }
     let(:stat_interval) { 0.2 }
     let(:write_3_and_4_sleep) { 3.5 }
 
@@ -151,13 +151,13 @@ describe FileWatch::Watch do
       subject.close_older = 2
     end
 
-    it "yields create_initial, modify, timeout and modify file events" do
+    it "yields create_initial, modify, timeout then modify, timeout file events" do
       write_lines_1_and_2_proc.call
       write_lines_3_and_4_proc.call # delayed async call
       subject.watch(File.join(directory, "*"))
       quit_proc.call
       subscribe_proc.call
-      expect(results).to eq([[:create_initial, file_path], [:modify, file_path], [:timeout, file_path], [:modify, file_path]])
+      expect(results).to eq([[:create_initial, file_path], [:modify, file_path], [:timeout, file_path], [:modify, file_path], [:timeout, file_path]])
     end
   end
 
@@ -176,6 +176,43 @@ describe FileWatch::Watch do
       quit_proc.call
       subscribe_proc.call
       expect(results).to eq([[:create_initial, file_path]])
+    end
+  end
+
+  context "when ignore_older is less than close_older and all files are not expired" do
+    let(:quit_sleep) { 3 }
+    let(:stat_interval) { 0.2 }
+
+    before do
+      File.open(file_path, "wb") { |file|  file.write("line1\nline2\n") }
+      subject.ignore_older = 1
+      subject.close_older = 2
+    end
+
+    it "yields create_initial, modify, timeout file events" do
+      subject.watch(File.join(directory, "*"))
+      quit_proc.call
+      subscribe_proc.call
+      expect(results).to eq([[:create_initial, file_path], [:modify, file_path], [:timeout, file_path]])
+    end
+  end
+
+  context "when ignore_older is less than close_older and all files are expired" do
+    let(:quit_sleep) { 3 }
+    let(:stat_interval) { 0.2 }
+
+    before do
+      File.open(file_path, "wb") { |file|  file.write("line1\nline2\n") }
+      subject.ignore_older = 1
+      subject.close_older = 2
+    end
+
+    it "yields create_initial, modify, timeout file events" do
+      sleep 1.9
+      subject.watch(File.join(directory, "*"))
+      quit_proc.call
+      subscribe_proc.call
+      expect(results).to eq([[:create_initial, file_path], [:timeout, file_path]])
     end
   end
 end
