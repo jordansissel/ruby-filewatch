@@ -143,7 +143,7 @@ describe FileWatch::Tail do
       it "updates sincedb after subscribe" do
         subject.subscribe(observer)
         stat = File::Stat.new(file_path)
-        sincedb_id = subject.sincedb_record_uid(file_path,stat).join(' ')
+        sincedb_id = FileWatch::Watch.inode(file_path, stat).join(" ")
         expect(File.read(sincedb_path)).to eq("#{sincedb_id} #{stat.size}\n")
       end
     end
@@ -168,7 +168,7 @@ describe FileWatch::Tail do
       it "updates on tail.quit" do
         subject.subscribe(observer)
         stat = File::Stat.new(file_path)
-        sincedb_id = subject.sincedb_record_uid(file_path,stat).join(' ')
+        sincedb_id = FileWatch::Watch.inode(file_path, stat).join(" ")
         expect(File.read(sincedb_path)).to eq("#{sincedb_id} #{stat.size}\n")
       end
     end
@@ -251,7 +251,7 @@ describe FileWatch::Tail do
       it "the file is ignored" do
         subject.subscribe(observer)
         expect(observer.listeners[file_path].lines).to eq([])
-        expect(observer.listeners[file_path].calls).to eq([:create, :eof])
+        expect(observer.listeners[file_path].calls).to eq([])
       end
 
       context "and then it is written to" do
@@ -264,7 +264,7 @@ describe FileWatch::Tail do
           end
           subject.subscribe(observer)
           expect(observer.listeners[file_path].lines).to eq(["line3", "line4"])
-          expect(observer.listeners[file_path].calls).to eq([:create, :eof, :accept, :accept, :eof])
+          expect(observer.listeners[file_path].calls).to eq([:create, :accept, :accept, :eof])
         end
       end
     end

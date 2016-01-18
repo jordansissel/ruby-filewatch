@@ -95,7 +95,7 @@ describe FileWatch::Tail do
       it "updates sincedb after subscribe" do
         subject.subscribe {|_,_|  }
         stat = File::Stat.new(file_path)
-        sincedb_id = subject.sincedb_record_uid(file_path,stat).join(' ')
+        sincedb_id = FileWatch::Watch.inode(file_path, stat).join(" ")
         expect(File.read(sincedb_path)).to eq("#{sincedb_id} #{stat.size}\n")
       end
     end
@@ -116,7 +116,7 @@ describe FileWatch::Tail do
       it "updates on tail.quit" do
         subject.subscribe {|_,_| }
         stat = File::Stat.new(file_path)
-        sincedb_id = subject.sincedb_record_uid(file_path,stat).join(' ')
+        sincedb_id = FileWatch::Watch.inode(file_path, stat).join(" ")
         expect(File.read(sincedb_path)).to eq("#{sincedb_id} #{stat.size}\n")
       end
     end

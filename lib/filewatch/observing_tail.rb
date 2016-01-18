@@ -21,43 +21,46 @@ module FileWatch
 
     def subscribe(observer = NullObserver.new)
       @watch.subscribe(@opts[:stat_interval],
-                       @opts[:discover_interval]) do |event, path|
+                       @opts[:discover_interval]) do |event, watched_file|
+        path = watched_file.path
+        file_is_open = watched_file.file_open?
         listener = observer.listener_for(path)
+
         case event
+        when :unignore
+          listener.created
+          _add_to_sincedb(watched_file, event)
         when :create, :create_initial
-          if @files.member?(path)
-            @logger.debug? && @logger.debug("#{event} for #{path}: already exists in @files")
+          if file_is_open
+            debug_log("#{event} for #{path}: file already open")
             next
           end
-          if _open_file(path, event)
+          if _open_file(watched_file, event)
             listener.created
-            observe_read_file(path, listener)
+            observe_read_file(watched_file, listener)
           end
         when :modify
-          if !@files.member?(path)
-            @logger.debug? && @logger.debug(":modify for #{path}, does not exist in @files")
-            if _open_file(path, event)
-              observe_read_file(path, listener)
+          if !file_is_open
+            debug_log(":modify for #{path}, file is not open, opening now")
+            if _open_file(watched_file, event)
+              observe_read_file(watched_file, listener)
             end
           else
-            observe_read_file(path, listener)
+            observe_read_file(watched_file, listener)
           end
         when :delete
-          @logger.debug? && @logger.debug(":delete for #{path}, deleted from @files")
-          if @files[path]
-            observe_read_file(path, listener)
-            @files[path].close
+          if file_is_open
+            debug_log(":delete for #{path}, closing file")
+            observe_read_file(watched_file, listener)
+            watched_file.file_close
+          else
+            debug_log(":delete for #{path}, file already closed")
           end
           listener.deleted
-          @files.delete(path)
-          @statcache.delete(path)
         when :timeout
-          @logger.debug? && @logger.debug(":timeout for #{path}, deleted from @files")
-          if (deleted = @files.delete(path))
-            deleted.close
-          end
+          debug_log(":timeout for #{path}, closing file")
+          watched_file.file_close
           listener.timed_out
-          @statcache.delete(path)
         else
           @logger.warn("unknown event type #{event} for #{path}")
         end
@@ -65,17 +68,15 @@ module FileWatch
     end # def subscribe
 
     private
-    def observe_read_file(path, listener)
-      @buffers[path] ||= FileWatch::BufferedTokenizer.new(@opts[:delimiter])
-      delimiter_byte_size = @opts[:delimiter].bytesize
+    def observe_read_file(watched_file, listener)
       changed = false
       loop do
         begin
-          data = @files[path].sysread(32768)
+          data = watched_file.file_read(32768)
           changed = true
-          @buffers[path].extract(data).each do |line|
+          watched_file.buffer_extract(data).each do |line|
             listener.accept(line)
-            @sincedb[@statcache[path]] += (line.bytesize + delimiter_byte_size)
+            @sincedb[watched_file.inode] += (line.bytesize + @delimiter_byte_size)
           end
         rescue EOFError
           listener.eof
@@ -90,7 +91,7 @@ module FileWatch
         now = Time.now.to_i
         delta = now - @sincedb_last_write
         if delta >= @opts[:sincedb_write_interval]
-          @logger.debug? && @logger.debug("writing sincedb (delta since last write = #{delta})")
+          debug_log("writing sincedb (delta since last write = #{delta})")
           _sincedb_write
           @sincedb_last_write = now
         end
