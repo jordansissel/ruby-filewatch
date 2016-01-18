@@ -29,7 +29,7 @@ module FileWatch
         case event
         when :unignore
           listener.created
-          _add_to_sincedb(watched_file, event)
+          _add_to_sincedb(watched_file, event) unless @sincedb.member(watched_file.inode)
         when :create, :create_initial
           if file_is_open
             debug_log("#{event} for #{path}: file already open")

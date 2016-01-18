@@ -98,8 +98,9 @@ module FileWatch
           @logger.warn("failed to open #{path}: #{$!}")
           @lastwarn[path] = now
         else
-          debug_log("(warn supressed) failed to open #{path}: #{$!}")
+          debug_log("(warn supressed) failed to open #{path}: #{$!.inspect}")
         end
+        watched_file.watch # set it back to watch so we can try it again
         return false
       end
       _add_to_sincedb(watched_file, event)
@@ -133,6 +134,8 @@ module FileWatch
           @sincedb[sincedb_key] = stat.size
         end
       elsif event == :create
+        @sincedb[sincedb_key] = 0
+      elsif event == :modify && @sincedb[sincedb_key].nil?
         @sincedb[sincedb_key] = 0
       elsif event == :unignore
         @sincedb[sincedb_key] = watched_file.ignored_size
@@ -170,10 +173,16 @@ module FileWatch
     private
     def _sincedb_write
       path = @opts[:sincedb_path]
-      if @iswindows || File.device?(path)
-        IO.write(path, serialize_sincedb, 0)
-      else
-        File.atomic_write(path) {|file| file.write(serialize_sincedb) }
+      begin
+        if @iswindows || File.device?(path)
+          IO.write(path, serialize_sincedb, 0)
+        else
+          File.atomic_write(path) {|file| file.write(serialize_sincedb) }
+        end
+      rescue Errno::EACCES
+        # probably no file handles free
+        # maybe it will work next time
+        debug_log("_sincedb_write: error: #{path}: #{$!}")
       end
     end # def _sincedb_write
 
@@ -182,8 +191,9 @@ module FileWatch
     # it should be called for clean up
     # before the instance is disposed of.
     def quit
+      @watch.quit # <-- should close all the files
+      # and that should allow the sincedb_write to succeed if it could not before
       _sincedb_write
-      @watch.quit
     end # def quit
 
     public

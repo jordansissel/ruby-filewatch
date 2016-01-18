@@ -1,7 +1,6 @@
 require 'filewatch/watch'
 require 'stud/temporary'
 require_relative 'spec_helper'
-
 ## A note about the sequence delay times.
 #  because the file mtimes and close_older etc.
 #  are never more granular than 1 second,
@@ -263,7 +262,7 @@ describe FileWatch::Watch do
         .then_after(3.1, "start watching after file ages more than ignore_older") do
           subject.watch(watch_dir)
         end
-        .then_after(0.55, "append more lines to file after file ages more than ignore_older") do
+        .then("append more lines to file after file ages more than ignore_older") do
           File.open(file_path, "ab") { |file|  file.write("line3\nline4\n") }
         end
         .then_after(3.1, "quit after allowing time to close the file") do

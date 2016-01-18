@@ -109,8 +109,9 @@ module FileWatch
 
         file_deleteable = []
         # look at the closed to see if its changed
-        closed = @files.select {|k, wf| wf.closed? }
-        closed.each do |path, watched_file|
+
+        @files.values.select {|wf| wf.closed? }.each do |watched_file|
+          path = watched_file.path
           begin
             stat = watched_file.restat
             if watched_file.size_changed? || watched_file.inode_changed?(inode(path,stat))
@@ -120,13 +121,15 @@ module FileWatch
           rescue Errno::ENOENT
             # file has gone away or we can't read it anymore.
             file_deleteable << path
-            debug_log("each: stat failed: #{path}: (#{$!}), deleting from @files")
+            debug_log("each: closed: stat failed: #{path}: (#{$!}), deleting from @files")
+          rescue => e
+            debug_log("each: closed: stat failed: #{path}: (#{e.inspect})")
           end
         end
 
         # look at the ignored to see if its changed
-        ignored = @files.select {|k, wf| wf.ignored? }
-        ignored.each do |path, watched_file|
+        @files.values.select {|wf| wf.ignored? }.each do |watched_file|
+          path = watched_file.path
           begin
             stat = watched_file.restat
             if watched_file.size_changed? || watched_file.inode_changed?(inode(path,stat))
@@ -141,38 +144,42 @@ module FileWatch
           rescue Errno::ENOENT
             # file has gone away or we can't read it anymore.
             file_deleteable << path
-            debug_log("each: stat failed: #{path}: (#{$!}), deleting from @files")
+            debug_log("each: ignored: stat failed: #{path}: (#{$!}), deleting from @files")
+          rescue => e
+            debug_log("each: ignored: stat failed: #{path}: (#{e.inspect})")
           end
         end
 
         # Send any creates.
-        creates = @files.select {|k, wf| wf.watched? }
-        creates.each do |path, watched_file|
+        @files.values.select {|wf| wf.watched? }.each do |watched_file|
+          watched_file.activate
           if watched_file.initial?
             yield(:create_initial, watched_file)
           else
             yield(:create, watched_file)
           end
-          watched_file.activate
         end
 
-        actives = @files.select {|k, wf| wf.active? }
         # wf.active? does not mean the actual files are open
         # only that the watch_file is active for further handling
-        actives.each do |path, watched_file|
+        @files.values.select {|wf| wf.active? }.each do |watched_file|
+          path = watched_file.path
           begin
             stat = watched_file.restat
           rescue Errno::ENOENT
             # file has gone away or we can't read it anymore.
             file_deleteable << path
-            debug_log("each: stat failed: #{path}: (#{$!}), deleting from @files")
+            debug_log("each: active: stat failed: #{path}: (#{$!}), deleting from @files")
             yield(:delete, watched_file)
             watched_file.unwatch
             next
+          rescue => e
+            debug_log("each: active: stat failed: #{path}: (#{e.inspect})")
+            next
           end
 
-          if watched_file.file_closable? || watched_file.file_ignorable?
-            debug_log("each: file expired: #{path}")
+          if watched_file.file_closable?
+            debug_log("each: active: file expired: #{path}")
             yield(:timeout, watched_file)
             watched_file.close
             next
@@ -288,10 +295,10 @@ module FileWatch
     private
     def _globbed_files(path)
       globbed_dirs = Dir.glob(path)
-      debug_log("_globbed_files: #{path}: glob is: #{globbed_dirs}")
+      # debug_log("_globbed_files: #{path}: glob is: #{globbed_dirs}")
       if globbed_dirs.empty? && File.file?(path)
         globbed_dirs = [path]
-        debug_log("_globbed_files: #{path}: glob is: #{globbed_dirs} because glob did not work")
+        # debug_log("_globbed_files: #{path}: glob is: #{globbed_dirs} because glob did not work")
       end
       # return Enumerator
       globbed_dirs.to_enum

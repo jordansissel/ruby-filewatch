@@ -43,7 +43,7 @@ module FileWatch
     end
 
     attr_reader :size, :inode, :state, :file, :buffer
-    attr_reader :path, :filestat, :ignored_size
+    attr_reader :path, :filestat, :ignored_size, :opened_at
 
     def initialize(path, inode, stat, initial)
       @path = path
@@ -51,10 +51,13 @@ module FileWatch
       @inode = inode
       @initial = initial
       @state = :watched
-      if (@filestat = stat).nil?
+      if (@filestat = stat).nil? && !@inode.nil?
         restat
       end
+    end
 
+    def set_opened_at
+      @opened_at = Time.now.to_i
     end
 
     def initial?
@@ -72,6 +75,7 @@ module FileWatch
     def file_add_opened(rubyfile)
       @file = rubyfile
       @buffer = FileWatch::BufferedTokenizer.new(self.class.delimiter || "\n")
+      set_opened_at
     end
 
     def file_close
@@ -163,10 +167,12 @@ module FileWatch
 
     def file_can_close?
       return false unless self.class.expiry_close_enabled?
-      # (Time.now - stat.mtime) <- in jruby, this does int and float
+      return false unless file_open?
+      # (Time.now - @open_at) <- in jruby, this does int and float
       # conversions before the subtraction and returns a float.
       # so use all ints instead
-      (Time.now.to_i - filestat.mtime.to_i) > self.class.close_older
+      # (Time.now.to_i - filestat.mtime.to_i) > self.class.close_older
+      (Time.now.to_i - @opened_at) > self.class.close_older
     end
 
     def to_s() inspect; end
