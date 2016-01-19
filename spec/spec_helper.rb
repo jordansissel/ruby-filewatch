@@ -42,4 +42,57 @@ module FileWatch
     def warn?() true; end
     def error?() true; end
   end
+
+  module NullCallable
+    def self.call() end
+  end
+
+  class TailObserver
+    class Listener
+      attr_reader :path, :lines, :calls
+
+      def initialize(path)
+        @path = path
+        @lines = []
+        @calls = []
+      end
+
+      def accept(line)
+        @lines << line
+        @calls << :accept
+      end
+
+      def deleted()
+        @calls << :delete
+      end
+
+      def created()
+        @calls << :create
+      end
+
+      def error()
+        @calls << :error
+      end
+
+      def eof()
+        @calls << :eof
+      end
+
+      def timed_out()
+        @calls << :timed_out
+      end
+    end
+
+    attr_reader :listeners
+
+    def initialize
+      @listeners = Hash.new {|hash, key| hash[key] = Listener.new(key) }
+    end
+
+    def listener_for(path)
+      @listeners[path]
+    end
+
+    def clear() @listeners.clear; end
+  end
 end

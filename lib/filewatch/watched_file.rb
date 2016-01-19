@@ -42,7 +42,7 @@ module FileWatch
       @ignore_older
     end
 
-    attr_reader :size, :inode, :state, :file, :buffer
+    attr_reader :size, :inode, :state, :file, :buffer, :state_history
     attr_reader :path, :filestat, :ignored_size, :accessed_at
 
     def initialize(path, inode, stat, initial)
@@ -50,6 +50,7 @@ module FileWatch
       @ignored_size = @size = 0
       @inode = inode
       @initial = initial
+      @state_history = []
       @state = :watched
       if (@filestat = stat).nil? && !@inode.nil?
         restat
@@ -97,6 +98,11 @@ module FileWatch
       !@file.nil? && !@file.closed?
     end
 
+    def update_read_size(total_bytes_read)
+      return if total_bytes_read.nil?
+      @size = total_bytes_read
+    end
+
     def buffer_extract(data)
       @buffer.extract(data)
     end
@@ -110,23 +116,28 @@ module FileWatch
     end
 
     def activate
+      archive_state
       @state = :active
     end
 
     def ignore
+      archive_state
       @state = :ignored
       @ignored_size = @size = @filestat.size
     end
 
     def close
+      archive_state
       @state = :closed
     end
 
     def watch
+      archive_state
       @state = :watched
     end
 
     def unwatch
+      archive_state
       @state = :unwatched
     end
 
@@ -152,6 +163,14 @@ module FileWatch
 
     def restat
       @filestat = File::Stat.new(path)
+    end
+
+    def archive_state
+      @state_history << @state
+    end
+
+    def state_history_any?(*previous)
+      (@state_history & previous).any?
     end
 
     def file_closable?

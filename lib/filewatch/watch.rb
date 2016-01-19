@@ -8,6 +8,9 @@ else
   INODE_METHOD = :nix_inode
 end
 
+# leave one file for the since db
+MAX_OPEN_FILES = ENV.fetch("MAX_OPEN_FILES", 4096).to_i.pred
+
 module FileWatch
   class Watch
 
@@ -115,8 +118,9 @@ module FileWatch
           begin
             stat = watched_file.restat
             if watched_file.size_changed? || watched_file.inode_changed?(inode(path,stat))
-              # if the closed file changed, move it to the opened state
-              watched_file.activate
+              # if the closed file changed, move it to the watched state
+              # not to active state because we want to use MAX_OPEN_FILES throttling.
+              watched_file.watch
             end
           rescue Errno::ENOENT
             # file has gone away or we can't read it anymore.
@@ -134,12 +138,13 @@ module FileWatch
             stat = watched_file.restat
             if watched_file.size_changed? || watched_file.inode_changed?(inode(path,stat))
               # if the ignored file changed, move it to the watched state
+              # not to active state because we want to use MAX_OPEN_FILES throttling.
               # this file has not been yielded to the block yet
               # but we need to allow the tail to start from the ignored_size
               # by adding this to the sincedb so that the subsequent modify
               # event can detect the change
+              watched_file.watch
               yield(:unignore, watched_file)
-              watched_file.activate
             end
           rescue Errno::ENOENT
             # file has gone away or we can't read it anymore.
@@ -151,14 +156,20 @@ module FileWatch
         end
 
         # Send any creates.
-        @files.values.select {|wf| wf.watched? }.each do |watched_file|
-          watched_file.activate
-          if watched_file.initial?
-            yield(:create_initial, watched_file)
-          else
-            yield(:create, watched_file)
+        if (to_take = MAX_OPEN_FILES - @files.values.count{|wf| wf.active?}) > 0
+          @files.values.select {|wf| wf.watched? }.take(to_take).each do |watched_file|
+            watched_file.activate
+            # don't do create again
+            next if watched_file.state_history_any?(:closed, :ignored)
+            if watched_file.initial?
+              yield(:create_initial, watched_file)
+            else
+              yield(:create, watched_file)
+            end
           end
         end
+
+        # warning on open file limit
 
         # wf.active? does not mean the actual files are open
         # only that the watch_file is active for further handling
@@ -170,8 +181,8 @@ module FileWatch
             # file has gone away or we can't read it anymore.
             file_deleteable << path
             debug_log("each: active: stat failed: #{path}: (#{$!}), deleting from @files")
-            yield(:delete, watched_file)
             watched_file.unwatch
+            yield(:delete, watched_file)
             next
           rescue => e
             debug_log("each: active: stat failed: #{path}: (#{e.inspect})")

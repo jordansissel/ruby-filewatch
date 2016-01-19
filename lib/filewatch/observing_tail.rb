@@ -25,11 +25,11 @@ module FileWatch
         path = watched_file.path
         file_is_open = watched_file.file_open?
         listener = observer.listener_for(path)
-
+        STDERR.puts "-> #{event}"
         case event
         when :unignore
           listener.created
-          _add_to_sincedb(watched_file, event) unless @sincedb.member(watched_file.inode)
+          _add_to_sincedb(watched_file, event) unless @sincedb.member?(watched_file.inode)
         when :create, :create_initial
           if file_is_open
             debug_log("#{event} for #{path}: file already open")
@@ -75,13 +75,22 @@ module FileWatch
           data = watched_file.file_read(32768)
           changed = true
           watched_file.buffer_extract(data).each do |line|
-            listener.accept(line)
             @sincedb[watched_file.inode] += (line.bytesize + @delimiter_byte_size)
+            listener.accept(line)
           end
+          # update what we have read so far
+          # if the whole file size is smaller than 32768 bytes
+          # we would have read it all now.
+          watched_file.update_read_size(@sincedb[watched_file.inode])
         rescue EOFError
           listener.eof
+          STDERR.puts "---> eof"
           break
         rescue Errno::EWOULDBLOCK, Errno::EINTR
+          listener.error
+          break
+        rescue => e
+          debug_log("observe_read_file: general error reading #{watched_file.path} - error: #{e.inspect}")
           listener.error
           break
         end

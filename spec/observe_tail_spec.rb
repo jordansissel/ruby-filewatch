@@ -1,57 +1,18 @@
 require 'filewatch/tail'
 require 'stud/temporary'
-
-class TailObserver
-  class Listener
-    attr_reader :path, :lines, :calls
-
-    def initialize(path)
-      @path = path
-      @lines = []
-      @calls = []
-    end
-
-    def accept(line)
-      @lines << line
-      @calls << :accept
-    end
-
-    def deleted()
-      @calls << :delete
-    end
-
-    def created()
-      @calls << :create
-    end
-
-    def error()
-      @calls << :error
-    end
-
-    def eof()
-      @calls << :eof
-    end
-
-    def timed_out()
-      @calls << :timed_out
-    end
-  end
-
-  attr_reader :listeners
-
-  def initialize
-    @listeners = Hash.new {|hash, key| hash[key] = Listener.new(key) }
-  end
-
-  def listener_for(path)
-    @listeners[path]
-  end
-
-  def clear() @listeners.clear; end
-end
+require_relative 'spec_helper'
 
 describe FileWatch::Tail do
-  let(:observer) { TailObserver.new }
+  before(:all) do
+    @thread_abort = Thread.abort_on_exception
+    Thread.abort_on_exception = true
+  end
+
+  after(:all) do
+    Thread.abort_on_exception = @thread_abort
+  end
+
+  let(:observer) { FileWatch::TailObserver.new }
   let(:file_path) { f = Stud::Temporary.pathname }
   let(:sincedb_path) { Stud::Temporary.pathname }
   let(:quit_sleep) { 0.1 }
@@ -61,8 +22,14 @@ describe FileWatch::Tail do
     end
   end
 
-  before do
+  before do |ex|
+    return if ex.metadata[:skip_before]
     quit_proc.call
+  end
+
+  after :each do
+    FileUtils.rm_rf(file_path)
+    FileUtils.rm_rf(sincedb_path)
   end
 
   context "when watching a new file" do
@@ -76,7 +43,7 @@ describe FileWatch::Tail do
     it "reads new lines off the file" do
       subject.subscribe(observer)
       expect(observer.listeners[file_path].lines).to eq(["line1", "line2"])
-      expect(observer.listeners[file_path].calls).to eq([:create, :accept, :accept, :eof, :eof])
+      expect(observer.listeners[file_path].calls).to eq([:create, :accept, :accept, :eof])
     end
   end
 
@@ -91,7 +58,7 @@ describe FileWatch::Tail do
     it "reads new lines off the file" do
       subject.subscribe(observer)
       expect(observer.listeners[file_path].lines).to eq(["lineA", "lineB"])
-      expect(observer.listeners[file_path].calls).to eq([:create, :accept, :accept, :eof, :eof])
+      expect(observer.listeners[file_path].calls).to eq([:create, :accept, :accept, :eof])
     end
 
   end
@@ -109,7 +76,7 @@ describe FileWatch::Tail do
     it "reads new lines off the file" do
       subject.subscribe(observer)
       expect(observer.listeners[file_path].lines).to eq(["lineC", "lineD"])
-      expect(observer.listeners[file_path].calls).to eq([:create, :accept, :accept, :eof, :eof])
+      expect(observer.listeners[file_path].calls).to eq([:create, :accept, :accept, :eof])
     end
   end
 
@@ -127,20 +94,25 @@ describe FileWatch::Tail do
     it "should read the lines and call deleted on listener" do
       subject.subscribe(observer)
       expect(observer.listeners[file_path].lines).to eq(["line1", "line2"])
-      expect(observer.listeners[file_path].calls).to eq([:create, :accept, :accept, :eof, :eof, :eof, :delete])
+      expect(observer.listeners[file_path].calls).to eq([:create, :accept, :accept, :eof, :eof, :delete])
     end
   end
 
-  describe "sincedb" do
+  describe "sincedb", :skip_before do
     subject { FileWatch::Tail.new_observing(:sincedb_path => sincedb_path, :start_new_files_at => :beginning, :stat_interval => 0) }
-
-    before :each do
-      File.open(file_path, "wb") { |file|  file.write("line1\nline2\n") }
-      subject.tail(file_path)
-    end
 
     context "when reading a new file" do
       it "updates sincedb after subscribe" do
+        RSpec::Sequencing
+          .run("create file") do
+            File.open(file_path, "wb") { |file|  file.write("line1\nline2\n") }
+          end
+          .then("begin tailing") do
+            subject.tail(file_path)
+          end
+          .then_after(quit_sleep, "quit tailing") do
+            subject.quit
+          end
         subject.subscribe(observer)
         stat = File::Stat.new(file_path)
         sincedb_id = FileWatch::Watch.inode(file_path, stat).join(" ")
@@ -149,27 +121,56 @@ describe FileWatch::Tail do
     end
 
     context "when restarting tail" do
-      before :each do
-        subject.subscribe(observer)
-        sleep 0.2 # wait for tail.quit
-        subject.tail(file_path) # re-tail file
-        # we remove previous because normally the observer would not store the transient data
-        observer.clear
-        File.open(file_path, "ab") { |file| file.write("line3\nline4\n") }
-        Thread.new(subject) { sleep 0.1; subject.quit }
+      let(:restart_actions) do
+        RSpec::Sequencing
+        .run("create file") do
+          File.open(file_path, "wb") { |file|  file.write("line1\nline2\n") }
+          stats << File::Stat.new(file_path)
+        end
+        .then("begin tailing") do
+          subject.tail(file_path)
+        end
+        .then_after(quit_sleep, "quit tailing") do
+          subject.quit
+        end
+        .then_after(0.45, "begin tailing again") do
+          results << File.read(sincedb_path)
+          # we remove previous because normally the observer would not store the transient data
+          observer.clear
+          subject.tail(file_path)
+        end
+        .then_after(0.45, "write more lines to the file") do
+          File.open(file_path, "ab") { |file| file.write("line3\nline4\n") }
+          stats << File::Stat.new(file_path)
+        end
+        .then_after(2.1, "quit tailing") do
+          subject.quit
+        end
+        .then_after(0.25, "read sincedb file") do
+          results << File.read(sincedb_path)
+        end
       end
 
+      let(:results) { [] }
+      let(:stats)   { [] }
+
       it "picks off from where it stopped" do
+        restart_actions.activate
+        subject.subscribe(observer)
         expect { subject.subscribe(observer) }.not_to raise_error
         expect(observer.listeners[file_path].lines).to eq(["line3", "line4"])
         expect(observer.listeners[file_path].calls).to eq([:accept, :accept, :eof])
       end
 
       it "updates on tail.quit" do
+        restart_actions.activate
         subject.subscribe(observer)
-        stat = File::Stat.new(file_path)
+        subject.subscribe(observer)
+        restart_actions.value
+        stat = stats.last
         sincedb_id = FileWatch::Watch.inode(file_path, stat).join(" ")
-        expect(File.read(sincedb_path)).to eq("#{sincedb_id} #{stat.size}\n")
+        expect(results.first).to eq("#{sincedb_id} #{stats.first.size}\n")
+        expect(results.last).to eq("#{sincedb_id} #{stats.last.size}\n")
       end
     end
   end
@@ -187,7 +188,7 @@ describe FileWatch::Tail do
 
     it "should read all the lines entirely" do
       subject.subscribe(observer)
-      expect(observer.listeners[file_path].calls).to eq([:create, :accept, :accept, :accept, :eof, :eof])
+      expect(observer.listeners[file_path].calls).to eq([:create, :accept, :accept, :accept, :eof])
       expect(observer.listeners[file_path].lines).to eq([lineA, lineB, lineC])
     end
   end
@@ -207,7 +208,8 @@ describe FileWatch::Tail do
       end
     end
 
-    before :each do
+    before :each do |ex|
+      return if ex.metadata[:skip_before]
       before_proc.call
     end
 
@@ -218,7 +220,7 @@ describe FileWatch::Tail do
     it "reads new lines off the file" do
       subject.subscribe(observer)
       expect(observer.listeners[file_path].lines).to eq(["line1", "line2"])
-      expect(observer.listeners[file_path].calls).to eq([:create, :accept, :accept, :eof, :eof])
+      expect(observer.listeners[file_path].calls).to eq([:create, :accept, :accept, :eof])
     end
 
     context "when a file is renamed" do
@@ -235,36 +237,45 @@ describe FileWatch::Tail do
     end
 
     context "when a file that was modified more than 2 seconds ago is present" do
-      let(:before_proc) do
-        lambda do
-          File.open(file_path, "wb") { |file|  file.write("line1\nline2\n") }
-          sleep 3
-          subject.tail(File.join(directory, "*"))
-        end
-      end
-      let(:quit_sleep) { 4 }
+      let(:before_proc) { FileWatch::NullCallable }
+      let(:quit_proc)   { FileWatch::NullCallable }
 
       subject { FileWatch::Tail.new_observing(
         :sincedb_path => sincedb_path, :start_new_files_at => position,
         :stat_interval => 0.1, :ignore_older => 2) }
 
       it "the file is ignored" do
+        RSpec::Sequencing
+          .run("create file") do
+            File.open(file_path, "wb") { |file|  file.write("line1\nline2\n") }
+          end
+          .then_after(3.1, "begin tailing") do
+            subject.tail(File.join(directory, "*"))
+          end
+          .then_after(1.55, "quit") do
+            subject.quit
+          end
         subject.subscribe(observer)
         expect(observer.listeners[file_path].lines).to eq([])
         expect(observer.listeners[file_path].calls).to eq([])
       end
 
       context "and then it is written to" do
-        let(:quit_sleep) { 5 }
-
-        it "reads new lines off the file" do
-          Thread.new do
-            sleep 1
+        it "reads only the new lines off the file" do
+          RSpec::Sequencing
+          .run("create file") do
+            File.open(file_path, "wb") { |file|  file.write("line1\nline2\n") }
+          end
+          .then_after(3.1, "begin tailing, after allowing file to age") do
+            subject.tail(File.join(directory, "*"))
+          end.then("write more lines") do
             File.open(file_path, "ab") { |file|  file.write("line3\nline4\n") }
+          end.then_after(0.75, "quit") do
+            subject.quit
           end
           subject.subscribe(observer)
-          expect(observer.listeners[file_path].lines).to eq(["line3", "line4"])
           expect(observer.listeners[file_path].calls).to eq([:create, :accept, :accept, :eof])
+          expect(observer.listeners[file_path].lines).to eq(["line3", "line4"])
         end
       end
     end
@@ -301,7 +312,7 @@ describe FileWatch::Tail do
         it "closes all files" do
           subject.subscribe(observer)
           expect(observer.listeners[file_path].lines).to eq(["line1", "line2"])
-          expect(observer.listeners[file_path].calls).to eq([:create, :accept, :accept, :eof, :eof])
+          expect(observer.listeners[file_path].calls).to eq([:create, :accept, :accept, :eof])
           lsof_after_quit = `lsof -p #{Process.pid} | grep #{file_path}`
           expect(lsof_after_quit).to be_empty
         end
@@ -325,7 +336,7 @@ describe FileWatch::Tail do
         it "the files are open before quitting" do
           subject.subscribe(observer)
           expect(observer.listeners[file_path].lines).to eq(["line1", "line2"])
-          expect(observer.listeners[file_path].calls).to eq([:create, :accept, :accept, :eof, :eof])
+          expect(observer.listeners[file_path].calls).to eq([:create, :accept, :accept, :eof])
           expect(lsof_before_quit.first).not_to be_empty
           lsof_after_quit = `lsof -p #{Process.pid} | grep #{file_path}`
           expect(lsof_after_quit).to be_empty
@@ -333,7 +344,8 @@ describe FileWatch::Tail do
       end
 
       context "when close_older is set" do
-        let(:quit_sleep) { 2.5 }
+        let(:before_proc) { FileWatch::NullCallable }
+        let(:quit_proc)   { FileWatch::NullCallable }
 
         subject do
           FileWatch::Tail.new_observing(
@@ -349,9 +361,21 @@ describe FileWatch::Tail do
         end
 
         it "the files are closed before quitting" do
+          RSpec::Sequencing
+          .run("begin tailing") do
+            subject.tail(File.join(directory, "*"))
+          end
+          .then("create file") do
+            File.open(file_path, "wb") { |file|  file.write("line1\nline2\n") }
+          end
+          .then_after(2.55, "quit") do
+            lsof_before_quit.push `lsof -p #{Process.pid} | grep #{file_path}`
+            subject.quit
+          end
+
           subject.subscribe(observer)
           expect(observer.listeners[file_path].lines).to eq(["line1", "line2"])
-          expect(observer.listeners[file_path].calls).to eq([:create, :accept, :accept, :eof, :eof, :timed_out])
+          expect(observer.listeners[file_path].calls).to eq([:create, :accept, :accept, :eof, :timed_out])
           expect(lsof_before_quit.first).to be_empty
         end
       end

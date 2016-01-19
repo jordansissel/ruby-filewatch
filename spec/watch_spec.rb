@@ -83,6 +83,63 @@ describe FileWatch::Watch do
     end
   end
 
+  context "when watching a directory with files and a file is renamed to not match glob" do
+    let(:new_file_path) { file_path + ".old" }
+    before do
+      RSpec::Sequencing
+        .run("create file") do
+          File.open(file_path, "wb") { |file|  file.write("line1\nline2\n") }
+        end
+        .then_after(0.25, "start watching after files are written") do
+          subject.watch(watch_dir)
+        end
+        .then_after(0.55, "rename file") do
+          FileUtils.mv(file_path, new_file_path)
+        end
+        .then_after(0.55, "then write to renamed file") do
+          File.open(new_file_path, "ab") { |file|  file.write("line3\nline4\n") }
+        end
+        .then_after(0.45, "quit after a short time") do
+          subject.quit
+        end
+    end
+
+    it "yields create_initial,one modify and a delete file events" do
+      subscribe_proc.call
+      expect(results).to eq([[:create_initial, file_path], [:modify, file_path], [:delete, file_path]])
+    end
+  end
+
+  context "when watching a directory with files and a file is renamed to match glob" do
+    let(:new_file_path) { file_path + "2.log" }
+    before do
+      RSpec::Sequencing
+        .run("create file") do
+          File.open(file_path, "wb") { |file|  file.write("line1\nline2\n") }
+        end
+        .then_after(0.25, "start watching after files are written") do
+          subject.watch(watch_dir)
+        end
+        .then_after(0.55, "rename file") do
+          FileUtils.mv(file_path, new_file_path)
+        end
+        .then("then write to renamed file") do
+          File.open(new_file_path, "ab") { |file|  file.write("line3\nline4\n") }
+        end
+        .then_after(2.75, "quit after a short time") do
+          subject.quit
+        end
+    end
+
+    it "yields create_initial, a modify, a delete, a create and a modify file events" do
+      subscribe_proc.call
+      expect(results).to eq([
+          [:create_initial, file_path], [:modify, file_path], [:delete, file_path],
+          [:create, new_file_path], [:modify, new_file_path]
+        ])
+    end
+  end
+
   context "when watching a directory with files and data is appended" do
     before do
       RSpec::Sequencing
@@ -140,10 +197,10 @@ describe FileWatch::Watch do
         .run("create file") do
           File.open(file_path, "wb") { |file|  file.write("line1\nline2\n") }
         end
-        .then_after(0.45, "start watching before file ages more than close_older") do
+        .then("start watching before file ages more than close_older") do
           subject.watch(watch_dir)
         end
-        .then_after(2.55, "quit after allowing time to close the file") do
+        .then_after(3.1, "quit after allowing time to close the file") do
           subject.quit
         end
     end
@@ -210,10 +267,10 @@ describe FileWatch::Watch do
         .run("create file") do
           File.open(file_path, "wb") { |file|  file.write("line1\nline2\n") }
         end
-        .then_after(0.75, "start watching before file age reaches ignore_older") do
+        .then("start watching before file age reaches ignore_older") do
           subject.watch(watch_dir)
         end
-        .then_after(2.45, "quit after allowing time to close the file") do
+        .then_after(3.1, "quit after allowing time to close the file") do
           subject.quit
         end
     end
@@ -269,7 +326,9 @@ describe FileWatch::Watch do
 
     it "yields unignore, modify then timeout file events" do
       subscribe_proc.call
-      expect(results).to eq([[:unignore, file_path], [:modify, file_path], [:timeout, file_path]])
+      expect(results).to eq([
+          [:unignore, file_path], [:modify, file_path], [:timeout, file_path]
+        ])
     end
   end
 end
