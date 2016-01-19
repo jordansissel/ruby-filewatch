@@ -22,7 +22,7 @@ describe FileWatch::Watch do
   let(:directory) { Stud::Temporary.directory }
   let(:watch_dir) { File.join(directory, "*.log") }
   let(:file_path) { File.join(directory, "1.log") }
-  let(:loggr)     { double("loggr", :debug? => true) }
+  let(:loggr)     { FileWatch::FileLogTracer.new }
   let(:results)   { [] }
   let(:stat_interval) { 0.1 }
   let(:discover_interval) { 4 }
@@ -38,9 +38,6 @@ describe FileWatch::Watch do
 
   subject { FileWatch::Watch.new(:logger => loggr) }
 
-  before do
-    allow(loggr).to receive(:debug)
-  end
   after do
     FileUtils.rm_rf(directory)
   end
@@ -253,7 +250,7 @@ describe FileWatch::Watch do
   context "when ignore older and close older expiry is enabled and after timeout the file is appended-to" do
     before do
       subject.ignore_older = 2
-      subject.close_older = 2
+      subject.close_older = 1
 
       RSpec::Sequencing
         .run("create file") do
@@ -265,7 +262,7 @@ describe FileWatch::Watch do
         .then("append more lines to file after file ages more than ignore_older") do
           File.open(file_path, "ab") { |file|  file.write("line3\nline4\n") }
         end
-        .then_after(3.1, "quit after allowing time to close the file") do
+        .then_after(2.1, "quit after allowing time to close the file") do
           subject.quit
         end
     end
