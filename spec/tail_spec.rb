@@ -24,6 +24,7 @@ describe "FileWatch::Tail (yielding)" do
 
   after :each do
     FileUtils.rm_rf(file_path)
+    sleep 0.15
     FileUtils.rm_rf(sincedb_path)
   end
 
