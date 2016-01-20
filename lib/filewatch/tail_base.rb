@@ -55,7 +55,8 @@ module FileWatch
       @watch.exclude(@opts[:exclude])
       @watch.close_older = @opts[:close_older]
       @watch.ignore_older = @opts[:ignore_older]
-      WatchedFile.delimiter = @opts[:delimiter]
+      @watch.delimiter = @opts[:delimiter]
+      @watch.max_open_files = @opts[:max_open_files]
       @delimiter_byte_size = @opts[:delimiter].bytesize
 
       _sincedb_open

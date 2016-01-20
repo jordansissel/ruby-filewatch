@@ -8,8 +8,7 @@ else
   INODE_METHOD = :nix_inode
 end
 
-# leave one file for the since db
-MAX_OPEN_FILES = ENV.fetch("MAX_OPEN_FILES", 4096).to_i.pred
+MAX_OPEN_FILES = ENV.fetch("MAX_OPEN_FILES", 4095).to_i
 
 module FileWatch
   class Watch
@@ -28,6 +27,8 @@ module FileWatch
     end
 
     attr_accessor :logger
+    attr_accessor :delimiter
+    attr_reader :max_active
 
     def initialize(opts={})
       if opts[:logger]
@@ -46,18 +47,25 @@ module FileWatch
       @lock = Mutex.new
       # we need to be threadsafe about the quit mutation
       @quit = false
+      @max_active = MAX_OPEN_FILES
       @quit_lock = Mutex.new
     end # def initialize
 
     public
 
+    def max_open_files=(value)
+      return if value.nil?
+      val = value.to_i
+      @max_active = val <= 0 ? MAX_OPEN_FILES : value
+    end
+
     def ignore_older=(value)
+      #nil is allowed but 0 and negatives are made nil
       if !value.nil?
         val = value.to_i
         val = val <= 0 ? nil : val
       end
       @ignore_older = val
-      WatchedFile.ignore_older = val
     end
 
     def close_older=(value)
@@ -66,7 +74,6 @@ module FileWatch
         val = val <= 0 ? nil : val
       end
       @close_older = val
-      WatchedFile.close_older = val
     end
 
     def exclude(path)
@@ -78,7 +85,12 @@ module FileWatch
         if !@watching.member?(path)
           @watching << path
           _discover_file(path) do |filepath, stat|
-            WatchedFile.new_initial(filepath, inode(filepath, stat), stat)
+            WatchedFile.new_initial(
+              filepath, inode(filepath, stat), stat).tap do |inst|
+                inst.delimiter = @delimiter
+                inst.ignore_older = @ignore_older
+                inst.close_older = @close_older
+            end
           end
         end
       end
@@ -164,7 +176,7 @@ module FileWatch
         end
 
         # Send any creates.
-        if (to_take = MAX_OPEN_FILES - @files.values.count{|wf| wf.active?}) > 0
+        if (to_take = @max_active - @files.values.count{|wf| wf.active?}) > 0
           @files.values.select {|wf| wf.watched? }.take(to_take).each do |watched_file|
             watched_file.activate
             # don't do create again
@@ -233,7 +245,12 @@ module FileWatch
       synchronized do
         @watching.each do |path|
           _discover_file(path) do |filepath, stat|
-            WatchedFile.new_ongoing(filepath, inode(filepath, stat), stat)
+            WatchedFile.new_ongoing(
+              filepath, inode(filepath, stat), stat).tap do |inst|
+                inst.delimiter = @delimiter
+                inst.ignore_older = @ignore_older
+                inst.close_older = @close_older
+            end
           end
         end
       end

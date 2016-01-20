@@ -10,40 +10,13 @@ module FileWatch
       new(path, inode, stat, false)
     end
 
-    def self.close_older=(value)
-      @close_older = value
-    end
-
-    def self.ignore_older=(value)
-      @ignore_older = value
-    end
-
-    def self.delimiter=(value)
-      @delimiter = value
-    end
-
-    def self.delimiter
-      @delimiter
-    end
-
-    def self.expiry_close_enabled?
-      !@close_older.nil?
-    end
-
-    def self.expiry_ignore_enabled?
-      !@ignore_older.nil?
-    end
-
-    def self.close_older
-      @close_older
-    end
-
-    def self.ignore_older
-      @ignore_older
-    end
-
     attr_reader :size, :inode, :state, :file, :buffer, :state_history
     attr_reader :path, :filestat, :ignored_size, :accessed_at
+    attr_accessor :close_older, :ignore_older, :delimiter
+
+    def delimiter
+      @delimiter
+    end
 
     def initialize(path, inode, stat, initial)
       @path = path
@@ -76,7 +49,7 @@ module FileWatch
 
     def file_add_opened(rubyfile)
       @file = rubyfile
-      @buffer = FileWatch::BufferedTokenizer.new(self.class.delimiter || "\n")
+      @buffer = FileWatch::BufferedTokenizer.new(delimiter || "\n")
     end
 
     def file_close
@@ -161,6 +134,14 @@ module FileWatch
       @state == :unwatched
     end
 
+    def expiry_close_enabled?
+      !@close_older.nil?
+    end
+
+    def expiry_ignore_enabled?
+      !@ignore_older.nil?
+    end
+
     def restat
       @filestat = File::Stat.new(path)
     end
@@ -178,20 +159,20 @@ module FileWatch
     end
 
     def file_ignorable?
-      return false unless self.class.expiry_ignore_enabled?
+      return false unless expiry_ignore_enabled?
       # (Time.now - stat.mtime) <- in jruby, this does int and float
       # conversions before the subtraction and returns a float.
       # so use all ints instead
-      (Time.now.to_i - filestat.mtime.to_i) > self.class.ignore_older
+      (Time.now.to_i - filestat.mtime.to_i) > ignore_older
     end
 
     def file_can_close?
-      return false unless self.class.expiry_close_enabled?
+      return false unless expiry_close_enabled?
       # (Time.now - @open_at) <- in jruby, this does int and float
       # conversions before the subtraction and returns a float.
       # so use all ints instead
-      # (Time.now.to_i - filestat.mtime.to_i) > self.class.close_older
-      (Time.now.to_i - @accessed_at) > self.class.close_older
+      # (Time.now.to_i - filestat.mtime.to_i) > close_older
+      (Time.now.to_i - @accessed_at) > close_older
     end
 
     def to_s() inspect; end
