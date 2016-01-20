@@ -25,7 +25,6 @@ module FileWatch
         path = watched_file.path
         file_is_open = watched_file.file_open?
         listener = observer.listener_for(path)
-        STDERR.puts "-> #{event}"
         case event
         when :unignore
           listener.created
@@ -84,7 +83,6 @@ module FileWatch
           watched_file.update_read_size(@sincedb[watched_file.inode])
         rescue EOFError
           listener.eof
-          STDERR.puts "---> eof"
           break
         rescue Errno::EWOULDBLOCK, Errno::EINTR
           listener.error

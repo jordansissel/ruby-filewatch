@@ -1,6 +1,6 @@
 require 'filewatch/watch'
 require 'stud/temporary'
-require_relative 'spec_helper'
+require_relative 'helpers/spec_helper'
 ## A note about the sequence delay times.
 #  because the file mtimes and close_older etc.
 #  are never more granular than 1 second,
@@ -113,6 +113,7 @@ describe FileWatch::Watch do
   context "when watching a directory with files and a file is renamed to match glob" do
     let(:new_file_path) { file_path + "2.log" }
     before do
+      subject.close_older = 0
       RSpec::Sequencing
         .run("create file") do
           File.open(file_path, "wb") { |file|  file.write("line1\nline2\n") }

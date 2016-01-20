@@ -52,13 +52,21 @@ module FileWatch
     public
 
     def ignore_older=(value)
-      @ignore_older = value
-      WatchedFile.ignore_older = value
+      if !value.nil?
+        val = value.to_i
+        val = val <= 0 ? nil : val
+      end
+      @ignore_older = val
+      WatchedFile.ignore_older = val
     end
 
     def close_older=(value)
-      @close_older = value
-      WatchedFile.close_older = value
+      if !value.nil?
+        val = value.to_i
+        val = val <= 0 ? nil : val
+      end
+      @close_older = val
+      WatchedFile.close_older = val
     end
 
     def exclude(path)

@@ -1,9 +1,9 @@
 require 'filewatch/tail'
 require 'stud/temporary'
 require "rbconfig"
-require_relative 'spec_helper'
+require_relative 'helpers/spec_helper'
 
-describe FileWatch::Tail do
+describe "FileWatch::Tail (yielding)" do
   before(:all) do
     @thread_abort = Thread.abort_on_exception
     Thread.abort_on_exception = true
@@ -271,29 +271,27 @@ describe FileWatch::Tail do
     end
 
     context "when close_older is set" do
-      let(:quit_sleep) { 3.1 }
       let(:lsof_before_quit) { [] }
-      let(:quit_proc) do
-        lambda do
-          lsof_before_quit.push `lsof -p #{Process.pid} | grep #{file_path}`
-          subject.quit
-        end
-      end
+      let(:quit_proc) { FileWatch::NullCallable }
 
       subject do
         FileWatch::Tail.new(
           :sincedb_path => sincedb_path,
           :start_new_files_at => :beginning,
-          :stat_interval => 0.2,
+          :stat_interval => 0.1,
           :close_older => 1)
       end
 
-      before :each do
-        subject.tail(file_path)
-        File.open(file_path, "wb") { |file|  file.write("line1\nline2\n") }
-      end
-
       it "closes the file handles" do
+        RSpec::Sequencing
+          .run("begin tailing then create file") do
+            subject.tail(file_path)
+            File.open(file_path, "wb") { |file| file.write("line1\nline2\n") }
+          end
+          .then_after(3.1, "allow time to have files closed then quit") do
+            lsof_before_quit.push `lsof -p #{Process.pid} | grep #{file_path}`
+            subject.quit
+          end
         buffer = []
         subject.subscribe do |path, line|
           if buffer.size.zero?
