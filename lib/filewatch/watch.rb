@@ -3,12 +3,10 @@ require_relative 'watched_file'
 
 if RbConfig::CONFIG['host_os'] =~ /mswin|mingw|cygwin/
   require "filewatch/winhelper"
-  INODE_METHOD = :win_inode
+  FILEWATCH_INODE_METHOD = :win_inode
 else
-  INODE_METHOD = :nix_inode
+  FILEWATCH_INODE_METHOD = :nix_inode
 end
-
-MAX_OPEN_FILES = ENV.fetch("MAX_OPEN_FILES", 4095).to_i
 
 module FileWatch
   class Watch
@@ -23,7 +21,7 @@ module FileWatch
     end
 
     def self.inode(path, stat)
-      send(INODE_METHOD, path, stat)
+      send(FILEWATCH_INODE_METHOD, path, stat)
     end
 
     attr_accessor :logger
@@ -47,16 +45,16 @@ module FileWatch
       @lock = Mutex.new
       # we need to be threadsafe about the quit mutation
       @quit = false
-      @max_active = MAX_OPEN_FILES
+      @max_active = ENV.fetch("FILEWATCH_MAX_OPEN_FILES", 4095).to_i
       @quit_lock = Mutex.new
     end # def initialize
 
     public
 
     def max_open_files=(value)
-      return if value.nil?
       val = value.to_i
-      @max_active = val <= 0 ? MAX_OPEN_FILES : value
+      return if value.nil? || val <= 0
+      @max_active = val
     end
 
     def ignore_older=(value)
