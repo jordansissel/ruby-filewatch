@@ -1,8 +1,11 @@
 require "rspec_sequencing"
 
 def formatted_puts(text)
-  txt = RSpec.configuration.format_docstrings_block.call(text)
-  RSpec.configuration.output_stream.puts "    #{txt}"
+  cfg = RSpec.configuration
+  return unless cfg.formatters.first.is_a?(
+        RSpec::Core::Formatters::DocumentationFormatter)
+  txt = cfg.format_docstrings_block.call(text)
+  cfg.output_stream.puts "    #{txt}"
 end
 
 unless RSpec::Matchers.method_defined?(:receive_call_and_args)

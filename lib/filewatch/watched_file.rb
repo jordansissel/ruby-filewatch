@@ -89,29 +89,24 @@ module FileWatch
     end
 
     def activate
-      archive_state
-      @state = :active
+      set_state :active
     end
 
     def ignore
-      archive_state
-      @state = :ignored
+      set_state :ignored
       @ignored_size = @size = @filestat.size
     end
 
     def close
-      archive_state
-      @state = :closed
+      set_state :closed
     end
 
     def watch
-      archive_state
-      @state = :watched
+      set_state :watched
     end
 
     def unwatch
-      archive_state
-      @state = :unwatched
+      set_state :unwatched
     end
 
     def active?
@@ -146,8 +141,9 @@ module FileWatch
       @filestat = File::Stat.new(path)
     end
 
-    def archive_state
+    def set_state(value)
       @state_history << @state
+      @state = value
     end
 
     def state_history_any?(*previous)

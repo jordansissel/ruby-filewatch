@@ -34,7 +34,6 @@ module FileWatch
       @buffers = {}
       @watch = FileWatch::Watch.new
       @watch.logger = @logger
-      @sincedb = {}
       @sincedb_last_write = 0
       # @statcache = {}
       @opts = {

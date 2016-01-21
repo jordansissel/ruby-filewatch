@@ -74,8 +74,8 @@ module FileWatch
           data = watched_file.file_read(32768)
           changed = true
           watched_file.buffer_extract(data).each do |line|
-            @sincedb[watched_file.inode] += (line.bytesize + @delimiter_byte_size)
             listener.accept(line)
+            @sincedb[watched_file.inode] += (line.bytesize + @delimiter_byte_size)
           end
           # update what we have read so far
           # if the whole file size is smaller than 32768 bytes
