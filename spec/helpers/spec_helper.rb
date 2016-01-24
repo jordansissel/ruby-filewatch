@@ -21,6 +21,12 @@ unless RSpec::Matchers.method_defined?(:receive_call_and_args)
 end
 
 module FileWatch
+
+  def self.make_file_older(path, seconds)
+    time = Time.now.to_f - seconds
+    File.utime(time, time, path)
+  end
+
   class TracerBase
     def initialize() @tracer = []; end
 

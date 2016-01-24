@@ -9,7 +9,15 @@ else
 end
 
 module FileWatch
+  # TODO make a WatchedFilesDb class that holds the watched_files instead of a hash
+  # it should support an 'identity' of path + inode
+  # it should be serializable instead of the sincedb
+  # it should be deserializable to recreate the exact state all files were in as last seen
+  # some parts of the each method should be handled by it, e.g.
+  # wfs_db.<state>_iterator{|wf| }, trapping the Errno::ENOENT, auto_delete and yield wtached_file
   class Watch
+
+    MAX_FILES_WARN_INTERVAL = ENV.fetch("FILEWATCH_MAX_FILES_WARN_INTERVAL", 20).to_i
 
     def self.win_inode(path, stat)
       fileId = Winhelper.GetWindowsUniqueFileIdentifier(path)
@@ -37,16 +45,18 @@ module FileWatch
       end
       @watching = []
       @exclude = []
-      @files = Hash.new { |h, k| h[k] = WatchedFile.new(k, nil, nil, false) }
+      @files = Hash.new
       # we need to be threadsafe about the mutation
       # of the above 2 ivars because the public
-      # methods each, discover, watch and unwatch
+      # methods each, discover and watch
       # can be called from different threads.
       @lock = Mutex.new
       # we need to be threadsafe about the quit mutation
       @quit = false
-      @max_active = ENV.fetch("FILEWATCH_MAX_OPEN_FILES", 4095).to_i
       @quit_lock = Mutex.new
+      @max_active = ENV.fetch("FILEWATCH_MAX_OPEN_FILES", 4095).to_i
+      @max_warn_msg = "Reached maximum (#{@max_active}) open files"
+      @lastwarn_max_files = 0
     end # def initialize
 
     public
@@ -54,13 +64,14 @@ module FileWatch
     def max_open_files=(value)
       val = value.to_i
       return if value.nil? || val <= 0
+      @max_warn_msg = "Reached maximum (#{val}) open files"
       @max_active = val
     end
 
     def ignore_older=(value)
       #nil is allowed but 0 and negatives are made nil
       if !value.nil?
-        val = value.to_i
+        val = value.to_f
         val = val <= 0 ? nil : val
       end
       @ignore_older = val
@@ -68,7 +79,7 @@ module FileWatch
 
     def close_older=(value)
       if !value.nil?
-        val = value.to_i
+        val = value.to_f
         val = val <= 0 ? nil : val
       end
       @close_older = val
@@ -84,35 +95,13 @@ module FileWatch
           @watching << path
           _discover_file(path) do |filepath, stat|
             WatchedFile.new_initial(
-              filepath, inode(filepath, stat), stat).tap do |inst|
-                inst.delimiter = @delimiter
-                inst.ignore_older = @ignore_older
-                inst.close_older = @close_older
-            end
+                filepath, inode(filepath, stat), stat
+              ).init_vars(@delimiter, @ignore_older, @close_older)
           end
         end
       end
       return true
     end # def watch
-
-    def unwatch(path)
-      synchronized do
-        result = false
-        if @watching.delete(path)
-          # path is a directory
-          _globbed_files(path).each do |file|
-            if (watched_file = @files[path])
-              watched_file.unwatch
-            end
-          end
-          result = true
-        elsif (watched_file = @files[path])
-          watched_file.unwatch
-          result = true
-        end
-        return !!result
-      end
-    end
 
     def inode(path, stat)
       self.class.inode(path, stat)
@@ -124,14 +113,18 @@ module FileWatch
     #   :create - file is created (new file after initial globs, start at 0)
     #   :modify - file is modified (size increases)
     #   :delete - file is deleted
+    #   :timeout - file is closable
+    #   :unignore - file was ignored, but since then it received new content
     def each(&block)
       synchronized do
         return if @files.empty?
 
         file_deleteable = []
-        # look at the closed to see if its changed
+        # creates this array just once
+        watched_files = @files.values
 
-        @files.values.select {|wf| wf.closed? }.each do |watched_file|
+        # look at the closed to see if its changed
+        watched_files.select {|wf| wf.closed? }.each do |watched_file|
           path = watched_file.path
           begin
             stat = watched_file.restat
@@ -150,7 +143,7 @@ module FileWatch
         end
 
         # look at the ignored to see if its changed
-        @files.values.select {|wf| wf.ignored? }.each do |watched_file|
+        watched_files.select {|wf| wf.ignored? }.each do |watched_file|
           path = watched_file.path
           begin
             stat = watched_file.restat
@@ -174,24 +167,36 @@ module FileWatch
         end
 
         # Send any creates.
-        if (to_take = @max_active - @files.values.count{|wf| wf.active?}) > 0
-          @files.values.select {|wf| wf.watched? }.take(to_take).each do |watched_file|
+        if (to_take = @max_active - watched_files.count{|wf| wf.active?}) > 0
+          watched_files.select {|wf| wf.watched? }.take(to_take).each do |watched_file|
             watched_file.activate
             # don't do create again
             next if watched_file.state_history_any?(:closed, :ignored)
+            # if the file can't be opened during the yield
+            # its state is set back to watched
             if watched_file.initial?
               yield(:create_initial, watched_file)
             else
               yield(:create, watched_file)
             end
           end
+        else
+          now = Time.now.to_i
+          if (now - @lastwarn_max_files) > MAX_FILES_WARN_INTERVAL
+            waiting = @files.size - @max_active
+            specific = if @close_older.nil?
+             ", try setting close_older. There are #{waiting} unopened files"
+            else
+              ", files yet to open: #{waiting}"
+            end
+            @logger.warn(@max_warn_msg + specific)
+            @lastwarn_max_files = now
+          end
         end
 
-        # warning on open file limit
-
-        # wf.active? does not mean the actual files are open
-        # only that the watch_file is active for further handling
-        @files.values.select {|wf| wf.active? }.each do |watched_file|
+        # wf.active means the actual files were opened
+        # and have been read once - unless they were empty at the time
+        watched_files.select {|wf| wf.active? }.each do |watched_file|
           path = watched_file.path
           begin
             stat = watched_file.restat
@@ -215,23 +220,20 @@ module FileWatch
           end
 
           _inode = inode(path,stat)
-          old_size = watched_file.size
-
+          read_thus_far = watched_file.size
+          # we don't update the size here, its updated when we actually read
           if watched_file.inode_changed?(_inode)
             debug_log("each: new inode: #{path}: old inode was #{watched_file.inode.inspect}, new is #{_inode.inspect}")
             watched_file.update_inode(_inode)
             yield(:delete, watched_file)
             yield(:create, watched_file)
-            watched_file.update_size
-          elsif stat.size < old_size
-            debug_log("each: file rolled: #{path}: new size is #{stat.size}, old size #{old_size}")
+          elsif stat.size < read_thus_far
+            debug_log("each: file rolled: #{path}: new size is #{stat.size}, old size #{read_thus_far}")
             yield(:delete, watched_file)
             yield(:create, watched_file)
-            watched_file.update_size
-          elsif stat.size > old_size
-            debug_log("each: file grew: #{path}: old size #{old_size}, new size #{stat.size}")
+          elsif stat.size > read_thus_far
+            debug_log("each: file grew: #{path}: old size #{read_thus_far}, new size #{stat.size}")
             yield(:modify, watched_file)
-            watched_file.update_size
           end
         end
 
@@ -244,11 +246,8 @@ module FileWatch
         @watching.each do |path|
           _discover_file(path) do |filepath, stat|
             WatchedFile.new_ongoing(
-              filepath, inode(filepath, stat), stat).tap do |inst|
-                inst.delimiter = @delimiter
-                inst.ignore_older = @ignore_older
-                inst.close_older = @close_older
-            end
+                filepath, inode(filepath, stat), stat
+              ).init_vars(@delimiter, @ignore_older, @close_older)
           end
         end
       end

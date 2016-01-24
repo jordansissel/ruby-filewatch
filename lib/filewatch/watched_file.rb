@@ -2,11 +2,11 @@ require "filewatch/buftok"
 
 module FileWatch
   class WatchedFile
-    def self.new_initial(path, inode, stat = nil)
+    def self.new_initial(path, inode, stat)
       new(path, inode, stat, true)
     end
 
-    def self.new_ongoing(path, inode, stat = nil)
+    def self.new_ongoing(path, inode, stat)
       new(path, inode, stat, false)
     end
 
@@ -25,14 +25,19 @@ module FileWatch
       @initial = initial
       @state_history = []
       @state = :watched
-      if (@filestat = stat).nil? && !@inode.nil?
-        restat
-      end
+      @filestat = stat
       set_accessed_at
     end
 
+    def init_vars(delim, ignore_o, close_o)
+      @delimiter = delim
+      @ignore_older = ignore_o
+      @close_older = close_o
+      self
+    end
+
     def set_accessed_at
-      @accessed_at = Time.now.to_i
+      @accessed_at = Time.now.to_f
     end
 
     def initial?
@@ -71,7 +76,7 @@ module FileWatch
       !@file.nil? && !@file.closed?
     end
 
-    def update_read_size(total_bytes_read)
+    def update_from_sincedb(total_bytes_read)
       return if total_bytes_read.nil?
       @size = total_bytes_read
     end
@@ -158,17 +163,13 @@ module FileWatch
       return false unless expiry_ignore_enabled?
       # (Time.now - stat.mtime) <- in jruby, this does int and float
       # conversions before the subtraction and returns a float.
-      # so use all ints instead
-      (Time.now.to_i - filestat.mtime.to_i) > ignore_older
+      # so use all floats upfront
+      (Time.now.to_f - filestat.mtime.to_f) > ignore_older
     end
 
     def file_can_close?
       return false unless expiry_close_enabled?
-      # (Time.now - @open_at) <- in jruby, this does int and float
-      # conversions before the subtraction and returns a float.
-      # so use all ints instead
-      # (Time.now.to_i - filestat.mtime.to_i) > close_older
-      (Time.now.to_i - @accessed_at) > close_older
+      (Time.now.to_f - @accessed_at) > close_older
     end
 
     def to_s() inspect; end

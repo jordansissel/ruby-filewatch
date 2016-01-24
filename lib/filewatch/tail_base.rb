@@ -13,14 +13,15 @@ require "JRubyFileExtension.jar" if defined? JRUBY_VERSION
 module FileWatch
   module TailBase
     # how often (in seconds) we @logger.warn a failed file open, per path.
-    OPEN_WARN_INTERVAL = ENV["FILEWATCH_OPEN_WARN_INTERVAL"] ?
-                         ENV["FILEWATCH_OPEN_WARN_INTERVAL"].to_i : 300
+    OPEN_WARN_INTERVAL = ENV.fetch("FILEWATCH_OPEN_WARN_INTERVAL", 300).to_i
 
     attr_reader :logger
 
     class NoSinceDBPathGiven < StandardError; end
 
     public
+    # TODO move sincedb to watch.rb
+    # see TODO there
     def initialize(opts={})
       @iswindows = ((RbConfig::CONFIG['host_os'] =~ /mswin|mingw|cygwin/) != nil)
 
@@ -35,7 +36,7 @@ module FileWatch
       @watch = FileWatch::Watch.new
       @watch.logger = @logger
       @sincedb_last_write = 0
-      # @statcache = {}
+      @sincedb = {}
       @opts = {
         :sincedb_write_interval => 10,
         :stat_interval => 1,
@@ -75,7 +76,7 @@ module FileWatch
     public
     def sincedb_record_uid(path, stat)
       # retain this call because its part of the public API
-      @watch.inode(path,stat)
+      @watch.inode(path, stat)
     end # def sincedb_record_uid
 
     private
@@ -108,19 +109,35 @@ module FileWatch
     end # def _open_file
 
     def _add_to_sincedb(watched_file, event)
+      # called when newly discovered files are opened
       stat = watched_file.filestat
       sincedb_key = watched_file.inode
       path = watched_file.path
 
       if @sincedb.member?(sincedb_key)
-        last_size = @sincedb[sincedb_key]
+        # we have seen this inode before
+        # but this is a new watched_file
+        # and we can't tell if its contents are the same
+        # as another file we have watched before.
+        last_read_size = @sincedb[sincedb_key]
         debug_log("#{path}: sincedb last value #{@sincedb[sincedb_key]}, cur size #{stat.size}")
-        if last_size <= stat.size
-          debug_log("#{path}: sincedb: seeking to #{last_size}")
-          watched_file.file_seek(last_size)
+        if stat.size > last_read_size
+          # 1) it could really be a new file with lots of new content
+          # 2) it could have old content that was read plus new that is not
+          debug_log("#{path}: sincedb: seeking to #{last_read_size}")
+          watched_file.file_seek(last_read_size) # going with 2
+          watched_file.update_from_sincedb(last_read_size)
+        elsif stat.size == last_read_size
+          # 1) it could have old content that was read
+          # 2) it could have new content that happens to be the same size
+          debug_log("#{path}: sincedb: seeking to #{last_read_size}")
+          watched_file.file_seek(last_read_size) # going with 1.
+          watched_file.update_from_sincedb(last_read_size)
         else
+          # it seems to be a new file with less content
           debug_log("#{path}: last value size is greater than current value, starting over")
           @sincedb[sincedb_key] = 0
+          watched_file.update_from_sincedb(0) if watched_file.size != 0
         end
       elsif event == :create_initial
         if @opts[:start_new_files_at] == :beginning

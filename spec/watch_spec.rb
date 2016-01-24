@@ -1,13 +1,6 @@
 require 'filewatch/watch'
 require 'stud/temporary'
 require_relative 'helpers/spec_helper'
-## A note about the sequence delay times.
-#  because the file mtimes and close_older etc.
-#  are never more granular than 1 second,
-#  when delay times are floats the measured time
-#  can be rounded up or down.
-#  so try to use float delays closer to the best integer
-#  where it matters
 
 describe FileWatch::Watch do
   before(:all) do
@@ -32,6 +25,7 @@ describe FileWatch::Watch do
       formatted_puts("subscribing")
       subject.subscribe(stat_interval, discover_interval) do |event, watched_file|
         results.push([event, watched_file.path])
+        watched_file.update_size if event == :modify
       end
     end
   end
@@ -49,8 +43,8 @@ describe FileWatch::Watch do
     let(:actions) do
       RSpec::Sequencing
         .run("create file and watch directory") do
-          File.open(file_path, "wb") { |file|  file.write("line1\nline2\n") }
-          File.open(file_path2, "wb") { |file|  file.write("lineA\nlineB\n") }
+          File.open(file_path, "wb")  { |file| file.write("line1\nline2\n") }
+          File.open(file_path2, "wb") { |file| file.write("lineA\nlineB\n") }
           subject.watch(watch_dir)
         end
         .then_after(wait_before_quit, "quit after a short time") do
@@ -59,14 +53,20 @@ describe FileWatch::Watch do
     end
 
     before { actions.activate }
-    after  { ENV.delete("FILEWATCH_MAX_OPEN_FILES") }
+    after do
+      ENV.delete("FILEWATCH_MAX_OPEN_FILES")
+      ENV.delete("FILEWATCH_MAX_FILES_WARN_INTERVAL")
+    end
 
     context "when using ENV" do
       it "opens only 1 file" do
         ENV["FILEWATCH_MAX_OPEN_FILES"] = max.to_s
+        ENV["FILEWATCH_MAX_FILES_WARN_INTERVAL"] = "0"
         expect(subject.max_active).to eq(max)
         subscribe_proc.call
         expect(results).to eq([[:create_initial, file_path], [:modify, file_path]])
+        expect(loggr.trace_for(:warn).flatten.last).to match(
+          %r{Reached maximum \(1\) open files, try setting close_older})
       end
     end
 
@@ -81,8 +81,10 @@ describe FileWatch::Watch do
     end
 
     context "when close_older is set" do
-      let(:wait_before_quit) { 2.25 }
+      let(:wait_before_quit) { 1.25 }
+
       it "opens both files" do
+        ENV["FILEWATCH_MAX_FILES_WARN_INTERVAL"] = "0.8"
         subject.max_open_files = max
         subject.close_older = 1 #seconds
         subscribe_proc.call
@@ -90,6 +92,8 @@ describe FileWatch::Watch do
             [:create_initial, file_path], [:modify, file_path], [:timeout, file_path],
             [:create_initial, file_path2], [:modify, file_path2], [:timeout, file_path2]
           ])
+        expect(loggr.trace_for(:warn).flatten.last).to match(
+          %r{Reached maximum \(1\) open files, files yet to open})
       end
     end
   end
@@ -97,10 +101,8 @@ describe FileWatch::Watch do
   context "when watching a directory with files" do
     let(:actions) do
       RSpec::Sequencing
-        .run("create file") do
+        .run("create file then start watching when directory has files") do
           File.open(file_path, "wb") { |file|  file.write("line1\nline2\n") }
-        end
-        .then_after(0.25, "start watching when directory has files") do
           subject.watch(watch_dir)
         end
         .then_after(0.55, "quit after a short time") do
@@ -156,7 +158,7 @@ describe FileWatch::Watch do
         end
     end
 
-    it "yields create_initial,one modify and a delete file events" do
+    it "yields create_initial, one modify and a delete file events" do
       subscribe_proc.call
       expect(results).to eq([[:create_initial, file_path], [:modify, file_path], [:delete, file_path]])
     end
@@ -170,7 +172,7 @@ describe FileWatch::Watch do
         .run("create file") do
           File.open(file_path, "wb") { |file|  file.write("line1\nline2\n") }
         end
-        .then_after(0.25, "start watching after files are written") do
+        .then_after(0.15, "start watching after files are written") do
           subject.watch(watch_dir)
         end
         .then_after(0.55, "rename file") do
@@ -179,7 +181,7 @@ describe FileWatch::Watch do
         .then("then write to renamed file") do
           File.open(new_file_path, "ab") { |file|  file.write("line3\nline4\n") }
         end
-        .then_after(2.75, "quit after a short time") do
+        .then_after(0.55, "quit after a short time") do
           subject.quit
         end
     end
@@ -216,33 +218,6 @@ describe FileWatch::Watch do
     end
   end
 
-  context "when unwatching a file and data is appended" do
-    before do
-      RSpec::Sequencing
-        .run("create file") do
-          File.open(file_path, "wb") { |file|  file.write("line1\nline2\n") }
-        end
-        .then_after(0.25, "start watching after file is written") do
-          subject.watch(watch_dir)
-        end
-        .then_after(0.25, "unwatch the file") do
-          results.clear
-          subject.unwatch(file_path)
-        end
-        .then_after(0.25, "append more lines to the file") do
-          File.open(file_path, "ab") { |file|  file.write("line3\nline4\n") }
-        end
-        .then_after(0.45, "quit after a short time") do
-          subject.quit
-        end
-    end
-
-    it "does not yield events after unwatching" do
-      subscribe_proc.call
-      expect(results).to eq([])
-    end
-  end
-
   context "when close older expiry is enabled" do
     before do
       subject.close_older = 2
@@ -253,7 +228,7 @@ describe FileWatch::Watch do
         .then("start watching before file ages more than close_older") do
           subject.watch(watch_dir)
         end
-        .then_after(3.1, "quit after allowing time to close the file") do
+        .then_after(2.1, "quit after allowing time to close the file") do
           subject.quit
         end
     end
@@ -275,10 +250,10 @@ describe FileWatch::Watch do
         .then("start watching before file ages more than close_older") do
           subject.watch(watch_dir)
         end
-        .then_after(3.1, "append more lines to file after file ages more than close_older") do
+        .then_after(2.1, "append more lines to file after file ages more than close_older") do
           File.open(file_path, "ab") { |file|  file.write("line3\nline4\n") }
         end
-        .then_after(3.1, "quit after allowing time to close the file") do
+        .then_after(2.1, "quit after allowing time to close the file") do
           subject.quit
         end
     end
@@ -294,13 +269,12 @@ describe FileWatch::Watch do
       subject.ignore_older = 1
 
       RSpec::Sequencing
-        .run("create file") do
+        .run("create file older than ignore_older and watch") do
           File.open(file_path, "wb") { |file|  file.write("line1\nline2\n") }
-        end
-        .then_after(2, "start watching after file ages more than ignore_older") do
+          FileWatch.make_file_older(file_path, 15)
           subject.watch(watch_dir)
         end
-        .then_after(1, "quit after allowing time to close the file") do
+        .then_after(1.1, "quit") do
           subject.quit
         end
     end
@@ -323,7 +297,7 @@ describe FileWatch::Watch do
         .then("start watching before file age reaches ignore_older") do
           subject.watch(watch_dir)
         end
-        .then_after(3.1, "quit after allowing time to close the file") do
+        .then_after(2.1, "quit after allowing time to close the file") do
           subject.quit
         end
     end
@@ -336,17 +310,16 @@ describe FileWatch::Watch do
 
   context "when ignore_older is less than close_older and all files are expired" do
     before do
-      subject.ignore_older = 1
+      subject.ignore_older = 10
       subject.close_older = 2
 
       RSpec::Sequencing
-        .run("create file") do
+        .run("create file older than ignore_older and watch") do
           File.open(file_path, "wb") { |file|  file.write("line1\nline2\n") }
-        end
-        .then_after(1.95, "start watching after file ages more than ignore_older") do
+          FileWatch.make_file_older(file_path, 15)
           subject.watch(watch_dir)
         end
-        .then_after(1.25, "quit after allowing time to close the file") do
+        .then_after(1.55, "quit after allowing time to check the files") do
           subject.quit
         end
     end
@@ -359,20 +332,19 @@ describe FileWatch::Watch do
 
   context "when ignore older and close older expiry is enabled and after timeout the file is appended-to" do
     before do
-      subject.ignore_older = 2
+      subject.ignore_older = 20
       subject.close_older = 1
 
       RSpec::Sequencing
-        .run("create file") do
+        .run("create file older than ignore_older and watch") do
           File.open(file_path, "wb") { |file|  file.write("line1\nline2\n") }
-        end
-        .then_after(3.1, "start watching after file ages more than ignore_older") do
+          FileWatch.make_file_older(file_path, 25)
           subject.watch(watch_dir)
         end
-        .then("append more lines to file after file ages more than ignore_older") do
+        .then_after(0.15, "append more lines to file after file ages more than ignore_older") do
           File.open(file_path, "ab") { |file|  file.write("line3\nline4\n") }
         end
-        .then_after(2.1, "quit after allowing time to close the file") do
+        .then_after(1.25, "quit after allowing time to close the file") do
           subject.quit
         end
     end

@@ -289,7 +289,7 @@ describe "FileWatch::Tail (yielding)" do
             subject.tail(file_path)
             File.open(file_path, "wb") { |file| file.write("line1\nline2\n") }
           end
-          .then_after(3.1, "allow time to have files closed then quit") do
+          .then_after(1.95, "allow time to have files closed then quit") do
             lsof_before_quit.push `lsof -p #{Process.pid} | grep #{file_path}`
             subject.quit
           end

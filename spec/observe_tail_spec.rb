@@ -280,24 +280,54 @@ describe "FileWatch::Tail (observing)" do
         expect(result_cache[:before_calls]).to         eq([:create, :accept, :accept, :eof])
         expect(observer.listeners[file_path].calls).to eq([:create, :accept, :accept, :eof, :eof, :delete])
         expect(observer.listeners[new_file_path].lines).to eq([])
-        expect(observer.listeners[new_file_path].calls).to eq([:create, :eof, :eof])
+        expect(observer.listeners[new_file_path].calls).to eq([:create, :eof])
       end
     end
 
-    context "when a file that was modified more than 2 seconds ago is present" do
+    context "when a file is copied outside the the watch pattern and the original truncated" do
+      let(:new_file_path) { file_path + ".bak" }
+
+      it "does not re-read the original file" do
+        RSpec::Sequencing
+          .run("create file and tail") do
+            File.open(file_path, "wb") { |file| file.write("line1\nline2\nline3\nline4\n") }
+            subject.tail(glob_path)
+          end
+          .then_after(0.55, "copy file then truncate and add content after allowing time to read the original") do
+            FileUtils.cp(file_path, new_file_path)
+            # open for "w" will truncate and add new lines
+            File.open(file_path, "w") {|f| f.write("lineA\nlineB\n"); f.fsync}
+          end
+          .then_after(0.55, "quit") do
+            subject.quit
+          end
+        subject.subscribe(observer)
+        # sometimes the truncated file is read before the content is written we get an extra eof
+        # this is normal and should not cause a test failure
+        calls = observer.listeners[file_path].calls
+        if calls.slice(8, 5) == [:create, :eof, :accept, :accept, :eof]
+          expect(calls.delete_at(9)).to eq(:eof)
+        end
+        expect(calls).to eq(
+          [:create, :accept, :accept, :accept, :accept, :eof, :eof, :delete, :create, :accept, :accept, :eof]
+        )
+        expect(observer.listeners[file_path].lines).to eq(["line1", "line2", "line3", "line4", "lineA", "lineB"])
+      end
+    end
+
+    context "when a file that was modified more than 10 seconds ago is present" do
       subject { FileWatch::Tail.new_observing(
         :sincedb_path => sincedb_path, :start_new_files_at => position,
-        :stat_interval => 0.1, :ignore_older => 2) }
+        :stat_interval => 0.1, :ignore_older => 10) }
 
       it "the file is ignored" do
         RSpec::Sequencing
-          .run("create file") do
+          .run("create file older than ignore_older and tail") do
             File.open(file_path, "wb") { |file| file.write("line1\nline2\n") }
-          end
-          .then_after(3.1, "begin tailing") do
+            FileWatch.make_file_older(file_path, 25)
             subject.tail(File.join(directory, "*"))
           end
-          .then_after(1.55, "quit") do
+          .then_after(0.55, "quit") do
             subject.quit
           end
         subject.subscribe(observer)
@@ -308,14 +338,15 @@ describe "FileWatch::Tail (observing)" do
       context "and then it is written to" do
         it "reads only the new lines off the file" do
           RSpec::Sequencing
-          .run("create file") do
+          .run("create file older than ignore_older and tail") do
             File.open(file_path, "wb") { |file| file.write("line1\nline2\n") }
-          end
-          .then_after(3.1, "begin tailing, after allowing file to age") do
+            FileWatch.make_file_older(file_path, 25)
             subject.tail(File.join(directory, "*"))
-          end.then("write more lines") do
+          end
+          .then_after(0.55, "write more lines") do
             File.open(file_path, "ab") { |file| file.write("line3\nline4\n") }
-          end.then_after(0.75, "quit") do
+          end
+          .then_after(0.55, "quit") do
             subject.quit
           end
           subject.subscribe(observer)
@@ -370,7 +401,7 @@ describe "FileWatch::Tail (observing)" do
             subject.tail(file_path)
             File.open(file_path, "wb") { |file| file.write("line1\nline2\n") }
           end
-          .then_after(2.55, "allow time to have files closed then quit") do
+          .then_after(1.75, "allow time to have files closed then quit") do
             lsof_before_quit.push `lsof -p #{Process.pid} | grep #{file_path}`
             subject.quit
           end
