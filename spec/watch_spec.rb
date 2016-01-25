@@ -23,9 +23,10 @@ describe FileWatch::Watch do
   let(:subscribe_proc) do
     lambda do
       formatted_puts("subscribing")
-      subject.subscribe(stat_interval, discover_interval) do |event, watched_file|
-        results.push([event, watched_file.path])
-        watched_file.update_size if event == :modify
+      subject.subscribe(stat_interval, discover_interval) do |event, wf|
+        results.push([event, wf.path])
+        # fake that we actually opened and read the file
+        wf.update_bytes_read(wf.filestat.size) if event == :modify
       end
     end
   end

@@ -10,8 +10,8 @@ module FileWatch
       new(path, inode, stat, false)
     end
 
-    attr_reader :size, :inode, :state, :file, :buffer, :state_history
-    attr_reader :path, :filestat, :ignored_size, :accessed_at
+    attr_reader :bytes_read, :inode, :state, :file, :buffer, :state_history
+    attr_reader :path, :filestat, :accessed_at
     attr_accessor :close_older, :ignore_older, :delimiter
 
     def delimiter
@@ -20,7 +20,7 @@ module FileWatch
 
     def initialize(path, inode, stat, initial)
       @path = path
-      @ignored_size = @size = 0
+      @bytes_read = 0
       @inode = inode
       @initial = initial
       @state_history = []
@@ -45,7 +45,7 @@ module FileWatch
     end
 
     def size_changed?
-      filestat.size != size
+      filestat.size != bytes_read
     end
 
     def inode_changed?(value)
@@ -76,9 +76,9 @@ module FileWatch
       !@file.nil? && !@file.closed?
     end
 
-    def update_from_sincedb(total_bytes_read)
+    def update_bytes_read(total_bytes_read)
       return if total_bytes_read.nil?
-      @size = total_bytes_read
+      @bytes_read = total_bytes_read
     end
 
     def buffer_extract(data)
@@ -89,17 +89,13 @@ module FileWatch
       @inode = _inode
     end
 
-    def update_size
-      @size = @filestat.size
-    end
-
     def activate
       set_state :active
     end
 
     def ignore
       set_state :ignored
-      @ignored_size = @size = @filestat.size
+      @bytes_read = @filestat.size
     end
 
     def close

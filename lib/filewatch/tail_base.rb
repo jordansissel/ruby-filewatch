@@ -126,18 +126,18 @@ module FileWatch
           # 2) it could have old content that was read plus new that is not
           debug_log("#{path}: sincedb: seeking to #{last_read_size}")
           watched_file.file_seek(last_read_size) # going with 2
-          watched_file.update_from_sincedb(last_read_size)
+          watched_file.update_bytes_read(last_read_size)
         elsif stat.size == last_read_size
           # 1) it could have old content that was read
           # 2) it could have new content that happens to be the same size
           debug_log("#{path}: sincedb: seeking to #{last_read_size}")
           watched_file.file_seek(last_read_size) # going with 1.
-          watched_file.update_from_sincedb(last_read_size)
+          watched_file.update_bytes_read(last_read_size)
         else
           # it seems to be a new file with less content
           debug_log("#{path}: last value size is greater than current value, starting over")
           @sincedb[sincedb_key] = 0
-          watched_file.update_from_sincedb(0) if watched_file.size != 0
+          watched_file.update_bytes_read(0) if watched_file.bytes_read != 0
         end
       elsif event == :create_initial
         if @opts[:start_new_files_at] == :beginning
@@ -155,7 +155,7 @@ module FileWatch
       elsif event == :modify && @sincedb[sincedb_key].nil?
         @sincedb[sincedb_key] = 0
       elsif event == :unignore
-        @sincedb[sincedb_key] = watched_file.ignored_size
+        @sincedb[sincedb_key] = watched_file.bytes_read
       else
         debug_log("#{path}: staying at position 0, no sincedb")
       end

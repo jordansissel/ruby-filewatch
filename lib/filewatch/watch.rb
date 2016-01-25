@@ -151,7 +151,8 @@ module FileWatch
               # if the ignored file changed, move it to the watched state
               # not to active state because we want to use MAX_OPEN_FILES throttling.
               # this file has not been yielded to the block yet
-              # but we need to allow the tail to start from the ignored_size
+              # but we must have the tail to start from the end, so when the file
+              # was first ignored we updated the bytes_read to the stat.size at that time.
               # by adding this to the sincedb so that the subsequent modify
               # event can detect the change
               watched_file.watch
@@ -220,7 +221,7 @@ module FileWatch
           end
 
           _inode = inode(path,stat)
-          read_thus_far = watched_file.size
+          read_thus_far = watched_file.bytes_read
           # we don't update the size here, its updated when we actually read
           if watched_file.inode_changed?(_inode)
             debug_log("each: new inode: #{path}: old inode was #{watched_file.inode.inspect}, new is #{_inode.inspect}")

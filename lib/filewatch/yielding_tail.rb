@@ -60,9 +60,9 @@ module FileWatch
             yield(watched_file.path, line)
             @sincedb[watched_file.inode] += (line.bytesize + @delimiter_byte_size)
           end
-          # watched_file size tracks the sincedb entry
+          # watched_file bytes_read tracks the sincedb entry
           # see TODO in watch.rb
-          watched_file.update_from_sincedb(@sincedb[watched_file.inode])
+          watched_file.update_bytes_read(@sincedb[watched_file.inode])
         rescue Errno::EWOULDBLOCK, Errno::EINTR, EOFError
           break
         end
