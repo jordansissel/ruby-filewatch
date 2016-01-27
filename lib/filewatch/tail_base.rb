@@ -1,5 +1,4 @@
 require "filewatch/helper"
-require "filewatch/buftok"
 require "filewatch/watch"
 
 if RbConfig::CONFIG['host_os'] =~ /mswin|mingw|cygwin/
@@ -14,14 +13,15 @@ require "JRubyFileExtension.jar" if defined? JRUBY_VERSION
 module FileWatch
   module TailBase
     # how often (in seconds) we @logger.warn a failed file open, per path.
-    OPEN_WARN_INTERVAL = ENV["FILEWATCH_OPEN_WARN_INTERVAL"] ?
-                         ENV["FILEWATCH_OPEN_WARN_INTERVAL"].to_i : 300
+    OPEN_WARN_INTERVAL = ENV.fetch("FILEWATCH_OPEN_WARN_INTERVAL", 300).to_i
 
     attr_reader :logger
 
     class NoSinceDBPathGiven < StandardError; end
 
     public
+    # TODO move sincedb to watch.rb
+    # see TODO there
     def initialize(opts={})
       @iswindows = ((RbConfig::CONFIG['host_os'] =~ /mswin|mingw|cygwin/) != nil)
 
@@ -31,14 +31,12 @@ module FileWatch
         @logger = Logger.new(STDERR)
         @logger.level = Logger::INFO
       end
-      @files = {}
       @lastwarn = Hash.new { |h, k| h[k] = 0 }
       @buffers = {}
       @watch = FileWatch::Watch.new
       @watch.logger = @logger
-      @sincedb = {}
       @sincedb_last_write = 0
-      @statcache = {}
+      @sincedb = {}
       @opts = {
         :sincedb_write_interval => 10,
         :stat_interval => 1,
@@ -57,6 +55,9 @@ module FileWatch
       @watch.exclude(@opts[:exclude])
       @watch.close_older = @opts[:close_older]
       @watch.ignore_older = @opts[:ignore_older]
+      @watch.delimiter = @opts[:delimiter]
+      @watch.max_open_files = @opts[:max_open_files]
+      @delimiter_byte_size = @opts[:delimiter].bytesize
 
       _sincedb_open
     end # def initialize
@@ -74,28 +75,20 @@ module FileWatch
 
     public
     def sincedb_record_uid(path, stat)
-      inode = @watch.inode(path,stat)
-      @statcache[path] = inode
-      return inode
+      # retain this call because its part of the public API
+      @watch.inode(path, stat)
     end # def sincedb_record_uid
 
     private
 
-    def file_expired?(stat)
-      return false if @opts[:ignore_older].nil?
-      # (Time.now - stat.mtime) <- in jruby, this does int and float
-      # conversions before the subtraction and returns a float.
-      # so use all ints instead
-      (Time.now.to_i - stat.mtime.to_i) > @opts[:ignore_older]
-    end
-
-    def _open_file(path, event)
+    def _open_file(watched_file, event)
+      path = watched_file.path
       @logger.debug? && @logger.debug("_open_file: #{path}: opening")
       begin
         if @iswindows && defined? JRUBY_VERSION
-          @files[path] = Java::RubyFileExt::getRubyFile(path)
+          watched_file.file_add_opened(Java::RubyFileExt::getRubyFile(path))
         else
-          @files[path] = File.open(path)
+          watched_file.file_add_opened(File.open(path))
         end
       rescue
         # don't emit this message too often. if a file that we can't
@@ -106,46 +99,68 @@ module FileWatch
           @logger.warn("failed to open #{path}: #{$!}")
           @lastwarn[path] = now
         else
-          @logger.debug? && @logger.debug("(warn supressed) failed to open #{path}: #{$!}")
+          @logger.debug? && @logger.debug("(warn supressed) failed to open #{path}: #{$!.inspect}")
         end
-        @files.delete(path)
+        watched_file.watch # set it back to watch so we can try it again
         return false
       end
+      _add_to_sincedb(watched_file, event)
+      true
+    end # def _open_file
 
-      stat = File::Stat.new(path)
-      sincedb_record_uid = sincedb_record_uid(path, stat)
+    def _add_to_sincedb(watched_file, event)
+      # called when newly discovered files are opened
+      stat = watched_file.filestat
+      sincedb_key = watched_file.inode
+      path = watched_file.path
 
-      expired_based_size = file_expired?(stat) ? stat.size : 0
-
-      if @sincedb.member?(sincedb_record_uid)
-        last_size = @sincedb[sincedb_record_uid]
-        @logger.debug? && @logger.debug("#{path}: sincedb last value #{@sincedb[sincedb_record_uid]}, cur size #{stat.size}")
-        if last_size <= stat.size
-          @logger.debug? && @logger.debug("#{path}: sincedb: seeking to #{last_size}")
-          @files[path].sysseek(last_size, IO::SEEK_SET)
+      if @sincedb.member?(sincedb_key)
+        # we have seen this inode before
+        # but this is a new watched_file
+        # and we can't tell if its contents are the same
+        # as another file we have watched before.
+        last_read_size = @sincedb[sincedb_key]
+        @logger.debug? && @logger.debug("#{path}: sincedb last value #{@sincedb[sincedb_key]}, cur size #{stat.size}")
+        if stat.size > last_read_size
+          # 1) it could really be a new file with lots of new content
+          # 2) it could have old content that was read plus new that is not
+          @logger.debug? && @logger.debug("#{path}: sincedb: seeking to #{last_read_size}")
+          watched_file.file_seek(last_read_size) # going with 2
+          watched_file.update_bytes_read(last_read_size)
+        elsif stat.size == last_read_size
+          # 1) it could have old content that was read
+          # 2) it could have new content that happens to be the same size
+          @logger.debug? && @logger.debug("#{path}: sincedb: seeking to #{last_read_size}")
+          watched_file.file_seek(last_read_size) # going with 1.
+          watched_file.update_bytes_read(last_read_size)
         else
+          # it seems to be a new file with less content
           @logger.debug? && @logger.debug("#{path}: last value size is greater than current value, starting over")
-          @sincedb[sincedb_record_uid] = 0
+          @sincedb[sincedb_key] = 0
+          watched_file.update_bytes_read(0) if watched_file.bytes_read != 0
         end
-      elsif event == :create_initial && @files[path]
+      elsif event == :create_initial
         if @opts[:start_new_files_at] == :beginning
           @logger.debug? && @logger.debug("#{path}: initial create, no sincedb, seeking to beginning of file")
-          @files[path].sysseek(expired_based_size, IO::SEEK_SET)
-          @sincedb[sincedb_record_uid] = expired_based_size
+          watched_file.file_seek(0)
+          @sincedb[sincedb_key] = 0
         else
           # seek to end
           @logger.debug? && @logger.debug("#{path}: initial create, no sincedb, seeking to end #{stat.size}")
-          @files[path].sysseek(stat.size, IO::SEEK_SET)
-          @sincedb[sincedb_record_uid] = stat.size
+          watched_file.file_seek(stat.size)
+          @sincedb[sincedb_key] = stat.size
         end
-      elsif event == :create && @files[path]
-        @sincedb[sincedb_record_uid] = expired_based_size
+      elsif event == :create
+        @sincedb[sincedb_key] = 0
+      elsif event == :modify && @sincedb[sincedb_key].nil?
+        @sincedb[sincedb_key] = 0
+      elsif event == :unignore
+        @sincedb[sincedb_key] = watched_file.bytes_read
       else
         @logger.debug? && @logger.debug("#{path}: staying at position 0, no sincedb")
       end
-
       return true
-    end # def _open_file
+    end # def _add_to_sincedb
 
     public
     def sincedb_write(reason=nil)
@@ -157,30 +172,34 @@ module FileWatch
     def _sincedb_open
       path = @opts[:sincedb_path]
       begin
-        db = File.open(path)
+        File.open(path) do |db|
+          @logger.debug? && @logger.debug("_sincedb_open: reading from #{path}")
+          db.each do |line|
+            ino, dev_major, dev_minor, pos = line.split(" ", 4)
+            sincedb_key = [ino, dev_major.to_i, dev_minor.to_i]
+            @logger.debug? && @logger.debug("_sincedb_open: setting #{sincedb_key.inspect} to #{pos.to_i}")
+            @sincedb[sincedb_key] = pos.to_i
+          end
+        end
       rescue
         #No existing sincedb to load
-        @logger.debug? && @logger.debug("_sincedb_open: #{path}: #{$!}")
-        return
+        @logger.debug? && @logger.debug("_sincedb_open: error: #{path}: #{$!}")
       end
-
-      @logger.debug? && @logger.debug("_sincedb_open: reading from #{path}")
-      db.each do |line|
-        ino, dev_major, dev_minor, pos = line.split(" ", 4)
-        sincedb_record_uid = [ino, dev_major.to_i, dev_minor.to_i]
-        @logger.debug? && @logger.debug("_sincedb_open: setting #{sincedb_record_uid.inspect} to #{pos.to_i}")
-        @sincedb[sincedb_record_uid] = pos.to_i
-      end
-      db.close
     end # def _sincedb_open
 
     private
     def _sincedb_write
       path = @opts[:sincedb_path]
-      if @iswindows || File.device?(path)
-        IO.write(path, serialize_sincedb, 0)
-      else
-        File.atomic_write(path) {|file| file.write(serialize_sincedb) }
+      begin
+        if @iswindows || File.device?(path)
+          IO.write(path, serialize_sincedb, 0)
+        else
+          File.atomic_write(path) {|file| file.write(serialize_sincedb) }
+        end
+      rescue Errno::EACCES
+        # probably no file handles free
+        # maybe it will work next time
+        @logger.debug? && @logger.debug("_sincedb_write: error: #{path}: #{$!}")
       end
     end # def _sincedb_write
 
@@ -189,13 +208,13 @@ module FileWatch
     # it should be called for clean up
     # before the instance is disposed of.
     def quit
+      @watch.quit # <-- should close all the files
+      # and that should allow the sincedb_write to succeed if it could not before
       _sincedb_write
-      @watch.quit
-      @files.each {|path, file| file.close }
-      @files.clear
     end # def quit
 
     public
+
     # close_file(path) is to be used by external code
     # when it knows that it is completely done with a file.
     # Other files or folders may still be being watched.
@@ -204,10 +223,7 @@ module FileWatch
     # The sysadmin should rename, move or delete the file.
     def close_file(path)
       @watch.unwatch(path)
-      file = @files.delete(path)
-      return if file.nil?
       _sincedb_write
-      file.close
     end
 
     private

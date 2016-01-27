@@ -1,8 +1,9 @@
 require 'filewatch/tail'
 require 'stud/temporary'
 require "rbconfig"
+require_relative 'helpers/spec_helper'
 
-describe FileWatch::Tail do
+describe "FileWatch::Tail (yielding)" do
   before(:all) do
     @thread_abort = Thread.abort_on_exception
     Thread.abort_on_exception = true
@@ -23,6 +24,7 @@ describe FileWatch::Tail do
 
   after :each do
     FileUtils.rm_rf(file_path)
+    sleep 0.15
     FileUtils.rm_rf(sincedb_path)
   end
 
@@ -85,39 +87,74 @@ describe FileWatch::Tail do
 
   describe "sincedb" do
     subject { FileWatch::Tail.new(:sincedb_path => sincedb_path, :start_new_files_at => :beginning, :stat_interval => 0) }
-
-    before :each do
-      File.open(file_path, "wb") { |file|  file.write("line1\nline2\n") }
-      subject.tail(file_path)
-    end
+    let(:quit_proc) { lambda {  } }
 
     context "when reading a new file" do
       it "updates sincedb after subscribe" do
+        RSpec::Sequencing
+          .run("create file") do
+            File.open(file_path, "wb") { |file|  file.write("line1\nline2\n") }
+          end
+          .then("begin tailing") do
+            subject.tail(file_path)
+          end
+          .then_after(quit_sleep, "quit tailing") do
+            subject.quit
+          end
         subject.subscribe {|_,_|  }
         stat = File::Stat.new(file_path)
-        sincedb_id = subject.sincedb_record_uid(file_path,stat).join(' ')
+        sincedb_id = FileWatch::Watch.inode(file_path, stat).join(" ")
         expect(File.read(sincedb_path)).to eq("#{sincedb_id} #{stat.size}\n")
       end
     end
 
     context "when restarting tail" do
-      before :each do
-        subject.subscribe {|_,_| }
-        sleep quit_sleep + 0.1 # wait for tail.quit
-        subject.tail(file_path) # re-tail file
-        File.open(file_path, "ab") { |file| file.write("line3\nline4\n") }
-        Thread.new(subject) { sleep 0.5; subject.quit }
+      let(:restart_actions) do
+        RSpec::Sequencing
+        .run("create file") do
+          File.open(file_path, "wb") { |file|  file.write("line1\nline2\n") }
+          stats << File::Stat.new(file_path)
+        end
+        .then("begin tailing") do
+          subject.tail(file_path)
+        end
+        .then_after(quit_sleep, "quit tailing") do
+          subject.quit
+        end
+        .then_after(0.45, "begin tailing again") do
+          results << File.read(sincedb_path)
+          subject.tail(file_path)
+        end
+        .then_after(0.45, "write more lines to the file") do
+          File.open(file_path, "ab") { |file| file.write("line3\nline4\n") }
+          stats << File::Stat.new(file_path)
+        end
+        .then_after(2.1, "quit tailing") do
+          subject.quit
+        end
+        .then_after(0.25, "read sincedb file") do
+          results << File.read(sincedb_path)
+        end
       end
 
+      let(:results) { [] }
+      let(:stats)   { [] }
+
       it "picks off from where it stopped" do
+        restart_actions.activate
+        subject.subscribe {|_,_| }
         expect { |b| subject.subscribe(&b) }.to yield_successive_args([file_path, "line3"], [file_path, "line4"])
       end
 
       it "updates on tail.quit" do
+        restart_actions.activate
         subject.subscribe {|_,_| }
-        stat = File::Stat.new(file_path)
-        sincedb_id = subject.sincedb_record_uid(file_path,stat).join(' ')
-        expect(File.read(sincedb_path)).to eq("#{sincedb_id} #{stat.size}\n")
+        subject.subscribe {|_,_| }
+        restart_actions.value
+        stat = stats.last
+        sincedb_id = FileWatch::Watch.inode(file_path, stat).join(" ")
+        expect(results.first).to eq("#{sincedb_id} #{stats.first.size}\n")
+        expect(results.last).to eq("#{sincedb_id} #{stats.last.size}\n")
       end
     end
   end
@@ -235,29 +272,27 @@ describe FileWatch::Tail do
     end
 
     context "when close_older is set" do
-      let(:quit_sleep) { 3 }
       let(:lsof_before_quit) { [] }
-      let(:quit_proc) do
-        lambda do
-          lsof_before_quit.push `lsof -p #{Process.pid} | grep #{file_path}`
-          subject.quit
-        end
-      end
+      let(:quit_proc) { FileWatch::NullCallable }
 
       subject do
         FileWatch::Tail.new(
           :sincedb_path => sincedb_path,
           :start_new_files_at => :beginning,
-          :stat_interval => 0.2,
+          :stat_interval => 0.1,
           :close_older => 1)
       end
 
-      before :each do
-        subject.tail(file_path)
-        File.open(file_path, "wb") { |file|  file.write("line1\nline2\n") }
-      end
-
       it "closes the file handles" do
+        RSpec::Sequencing
+          .run("begin tailing then create file") do
+            subject.tail(file_path)
+            File.open(file_path, "wb") { |file| file.write("line1\nline2\n") }
+          end
+          .then_after(1.95, "allow time to have files closed then quit") do
+            lsof_before_quit.push `lsof -p #{Process.pid} | grep #{file_path}`
+            subject.quit
+          end
         buffer = []
         subject.subscribe do |path, line|
           if buffer.size.zero?

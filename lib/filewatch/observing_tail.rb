@@ -21,43 +21,45 @@ module FileWatch
 
     def subscribe(observer = NullObserver.new)
       @watch.subscribe(@opts[:stat_interval],
-                       @opts[:discover_interval]) do |event, path|
+                       @opts[:discover_interval]) do |event, watched_file|
+        path = watched_file.path
+        file_is_open = watched_file.file_open?
         listener = observer.listener_for(path)
         case event
+        when :unignore
+          listener.created
+          _add_to_sincedb(watched_file, event) unless @sincedb.member?(watched_file.inode)
         when :create, :create_initial
-          if @files.member?(path)
-            @logger.debug? && @logger.debug("#{event} for #{path}: already exists in @files")
+          if file_is_open
+            @logger.debug? && @logger.debug("#{event} for #{path}: file already open")
             next
           end
-          if _open_file(path, event)
+          if _open_file(watched_file, event)
             listener.created
-            observe_read_file(path, listener)
+            observe_read_file(watched_file, listener)
           end
         when :modify
-          if !@files.member?(path)
-            @logger.debug? && @logger.debug(":modify for #{path}, does not exist in @files")
-            if _open_file(path, event)
-              observe_read_file(path, listener)
-            end
+          if file_is_open
+            observe_read_file(watched_file, listener)
           else
-            observe_read_file(path, listener)
+            @logger.debug? && @logger.debug(":modify for #{path}, file is not open, opening now")
+            if _open_file(watched_file, event)
+              observe_read_file(watched_file, listener)
+            end
           end
         when :delete
-          @logger.debug? && @logger.debug(":delete for #{path}, deleted from @files")
-          if @files[path]
-            observe_read_file(path, listener)
-            @files[path].close
+          if file_is_open
+            @logger.debug? && @logger.debug(":delete for #{path}, closing file")
+            observe_read_file(watched_file, listener)
+            watched_file.file_close
+          else
+            @logger.debug? && @logger.debug(":delete for #{path}, file already closed")
           end
           listener.deleted
-          @files.delete(path)
-          @statcache.delete(path)
         when :timeout
-          @logger.debug? && @logger.debug(":timeout for #{path}, deleted from @files")
-          if (deleted = @files.delete(path))
-            deleted.close
-          end
+          @logger.debug? && @logger.debug(":timeout for #{path}, closing file")
+          watched_file.file_close
           listener.timed_out
-          @statcache.delete(path)
         else
           @logger.warn("unknown event type #{event} for #{path}")
         end
@@ -65,22 +67,27 @@ module FileWatch
     end # def subscribe
 
     private
-    def observe_read_file(path, listener)
-      @buffers[path] ||= FileWatch::BufferedTokenizer.new(@opts[:delimiter])
-      delimiter_byte_size = @opts[:delimiter].bytesize
+    def observe_read_file(watched_file, listener)
       changed = false
       loop do
         begin
-          data = @files[path].sysread(32768)
+          data = watched_file.file_read(32768)
           changed = true
-          @buffers[path].extract(data).each do |line|
+          watched_file.buffer_extract(data).each do |line|
             listener.accept(line)
-            @sincedb[@statcache[path]] += (line.bytesize + delimiter_byte_size)
+            @sincedb[watched_file.inode] += (line.bytesize + @delimiter_byte_size)
           end
+          # watched_file bytes_read tracks the sincedb entry
+          # see TODO in watch.rb
+          watched_file.update_bytes_read(@sincedb[watched_file.inode])
         rescue EOFError
           listener.eof
           break
         rescue Errno::EWOULDBLOCK, Errno::EINTR
+          listener.error
+          break
+        rescue => e
+          @logger.debug? && @logger.debug("observe_read_file: general error reading #{watched_file.path} - error: #{e.inspect}")
           listener.error
           break
         end

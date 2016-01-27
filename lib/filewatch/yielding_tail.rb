@@ -8,39 +8,41 @@ module FileWatch
     def subscribe(&block)
       # subscribe(stat_interval = 1, discover_interval = 5, &block)
       @watch.subscribe(@opts[:stat_interval],
-                       @opts[:discover_interval]) do |event, path|
+                       @opts[:discover_interval]) do |event, watched_file|
+        path = watched_file.path
+        file_is_open = watched_file.file_open?
+
         case event
+        when :unignore
+          _add_to_sincedb(watched_file, event)
         when :create, :create_initial
-          if @files.member?(path)
-            @logger.debug? && @logger.debug("#{event} for #{path}: already exists in @files")
+          if file_is_open
+            @logger.debug? && @logger.debug("#{event} for #{path}: file already open")
             next
           end
-          if _open_file(path, event)
-            yield_read_file(path, &block)
+          if _open_file(watched_file, event)
+            yield_read_file(watched_file, &block)
           end
         when :modify
-          if !@files.member?(path)
-            @logger.debug? && @logger.debug(":modify for #{path}, does not exist in @files")
-            if _open_file(path, event)
-              yield_read_file(path, &block)
+          if !file_is_open
+            @logger.debug? && @logger.debug(":modify for #{path}, file is not open, opening now")
+            if _open_file(watched_file, event)
+              yield_read_file(watched_file, &block)
             end
           else
-            yield_read_file(path, &block)
+            yield_read_file(watched_file, &block)
           end
         when :delete
-          @logger.debug? && @logger.debug(":delete for: #{path} - closed and deleted from @files")
-          if @files[path]
-            yield_read_file(path, &block)
-            @files[path].close
+          if file_is_open
+            @logger.debug? && @logger.debug(":delete for #{path}, closing file")
+            yield_read_file(watched_file, &block)
+            watched_file.file_close
+          else
+            @logger.debug? && @logger.debug(":delete for #{path}, file already closed")
           end
-          @files.delete(path)
-          @statcache.delete(path)
         when :timeout
-          @logger.debug? && @logger.debug(":timeout for: #{path} - closed and deleted from @files")
-          if (deleted = @files.delete(path))
-            deleted.close
-          end
-          @statcache.delete(path)
+          @logger.debug? && @logger.debug(":timeout for #{path}, closing file")
+          watched_file.file_close
         else
           @logger.warn("unknown event type #{event} for #{path}")
         end
@@ -48,18 +50,19 @@ module FileWatch
     end # def subscribe
 
     private
-    def yield_read_file(path, &block)
-      @buffers[path] ||= FileWatch::BufferedTokenizer.new(@opts[:delimiter])
-      delimiter_byte_size = @opts[:delimiter].bytesize
+    def yield_read_file(watched_file, &block)
       changed = false
       loop do
         begin
-          data = @files[path].sysread(32768)
+          data = watched_file.file_read(32768)
           changed = true
-          @buffers[path].extract(data).each do |line|
-            yield(path, line)
-            @sincedb[@statcache[path]] += (line.bytesize + delimiter_byte_size)
+          watched_file.buffer_extract(data).each do |line|
+            yield(watched_file.path, line)
+            @sincedb[watched_file.inode] += (line.bytesize + @delimiter_byte_size)
           end
+          # watched_file bytes_read tracks the sincedb entry
+          # see TODO in watch.rb
+          watched_file.update_bytes_read(@sincedb[watched_file.inode])
         rescue Errno::EWOULDBLOCK, Errno::EINTR, EOFError
           break
         end
