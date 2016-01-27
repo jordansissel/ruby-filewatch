@@ -232,10 +232,5 @@ module FileWatch
         [inode, pos].flatten.join(" ")
       end.join("\n") + "\n"
     end
-
-    def debug_log(msg)
-      return unless @logger.debug?
-      @logger.debug(msg)
-    end
   end # module TailBase
 end # module FileWatch

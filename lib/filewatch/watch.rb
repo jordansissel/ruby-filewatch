@@ -280,11 +280,6 @@ module FileWatch
 
     private
 
-    def debug_log(msg)
-      return unless @logger.debug?
-      @logger.debug(msg)
-    end
-
     def _discover_file(path)
       _globbed_files(path).each do |file|
         next unless File.file?(file)
