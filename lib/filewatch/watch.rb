@@ -54,8 +54,7 @@ module FileWatch
       # we need to be threadsafe about the quit mutation
       @quit = false
       @quit_lock = Mutex.new
-      @max_active = ENV.fetch("FILEWATCH_MAX_OPEN_FILES", 4095).to_i
-      @max_warn_msg = "Reached maximum (#{@max_active}) open files"
+      self.max_open_files = ENV["FILEWATCH_MAX_OPEN_FILES"].to_i
       @lastwarn_max_files = 0
     end # def initialize
 
@@ -63,8 +62,8 @@ module FileWatch
 
     def max_open_files=(value)
       val = value.to_i
-      return if value.nil? || val <= 0
-      @max_warn_msg = "Reached maximum (#{val}) open files"
+      val = 4095 if value.nil? || val <= 0
+      @max_warn_msg = "Reached open files limit: #{val}, set by the 'max_open_files' option or default"
       @max_active = val
     end
 
@@ -136,9 +135,9 @@ module FileWatch
           rescue Errno::ENOENT
             # file has gone away or we can't read it anymore.
             file_deleteable << path
-            debug_log("each: closed: stat failed: #{path}: (#{$!}), deleting from @files")
+            @logger.debug? && @logger.debug("each: closed: stat failed: #{path}: (#{$!}), deleting from @files")
           rescue => e
-            debug_log("each: closed: stat failed: #{path}: (#{e.inspect})")
+            @logger.debug? && @logger.debug("each: closed: stat failed: #{path}: (#{e.inspect})")
           end
         end
 
@@ -161,9 +160,9 @@ module FileWatch
           rescue Errno::ENOENT
             # file has gone away or we can't read it anymore.
             file_deleteable << path
-            debug_log("each: ignored: stat failed: #{path}: (#{$!}), deleting from @files")
+            @logger.debug? && @logger.debug("each: ignored: stat failed: #{path}: (#{$!}), deleting from @files")
           rescue => e
-            debug_log("each: ignored: stat failed: #{path}: (#{e.inspect})")
+            @logger.debug? && @logger.debug("each: ignored: stat failed: #{path}: (#{e.inspect})")
           end
         end
 
@@ -204,17 +203,17 @@ module FileWatch
           rescue Errno::ENOENT
             # file has gone away or we can't read it anymore.
             file_deleteable << path
-            debug_log("each: active: stat failed: #{path}: (#{$!}), deleting from @files")
+            @logger.debug? && @logger.debug("each: active: stat failed: #{path}: (#{$!}), deleting from @files")
             watched_file.unwatch
             yield(:delete, watched_file)
             next
           rescue => e
-            debug_log("each: active: stat failed: #{path}: (#{e.inspect})")
+            @logger.debug? && @logger.debug("each: active: stat failed: #{path}: (#{e.inspect})")
             next
           end
 
           if watched_file.file_closable?
-            debug_log("each: active: file expired: #{path}")
+            @logger.debug? && @logger.debug("each: active: file expired: #{path}")
             yield(:timeout, watched_file)
             watched_file.close
             next
@@ -224,16 +223,16 @@ module FileWatch
           read_thus_far = watched_file.bytes_read
           # we don't update the size here, its updated when we actually read
           if watched_file.inode_changed?(_inode)
-            debug_log("each: new inode: #{path}: old inode was #{watched_file.inode.inspect}, new is #{_inode.inspect}")
+            @logger.debug? && @logger.debug("each: new inode: #{path}: old inode was #{watched_file.inode.inspect}, new is #{_inode.inspect}")
             watched_file.update_inode(_inode)
             yield(:delete, watched_file)
             yield(:create, watched_file)
           elsif stat.size < read_thus_far
-            debug_log("each: file rolled: #{path}: new size is #{stat.size}, old size #{read_thus_far}")
+            @logger.debug? && @logger.debug("each: file rolled: #{path}: new size is #{stat.size}, old size #{read_thus_far}")
             yield(:delete, watched_file)
             yield(:create, watched_file)
           elsif stat.size > read_thus_far
-            debug_log("each: file grew: #{path}: old size #{read_thus_far}, new size #{stat.size}")
+            @logger.debug? && @logger.debug("each: file grew: #{path}: old size #{read_thus_far}, new size #{stat.size}")
             yield(:modify, watched_file)
           end
         end
@@ -293,7 +292,7 @@ module FileWatch
         if @files.member?(file)
           watched_file = @files[file]
         else
-          debug_log("_discover_file: #{path}: new: #{file} (exclude is #{@exclude.inspect})")
+          @logger.debug? && @logger.debug("_discover_file: #{path}: new: #{file} (exclude is #{@exclude.inspect})")
           # let the caller build the object in its context
           new_discovery = true
           watched_file = yield(file, File::Stat.new(file))
@@ -302,7 +301,7 @@ module FileWatch
         skip = false
         @exclude.each do |pattern|
           if File.fnmatch?(pattern, File.basename(file))
-            debug_log("_discover_file: #{file}: skipping because it " +
+            @logger.debug? && @logger.debug("_discover_file: #{file}: skipping because it " +
                           "matches exclude #{pattern}") if new_discovery
             skip = true
             watched_file.unwatch
@@ -313,7 +312,7 @@ module FileWatch
 
         if new_discovery
           if watched_file.file_ignorable?
-            debug_log("_discover_file: #{file}: skipping because it was last modified more than #{@ignore_older} seconds ago")
+            @logger.debug? && @logger.debug("_discover_file: #{file}: skipping because it was last modified more than #{@ignore_older} seconds ago")
             # on discovery we put watched_file into the ignored state and that
             # updates the size from the internal stat
             # so the existing contents are not read.
@@ -329,10 +328,10 @@ module FileWatch
     private
     def _globbed_files(path)
       globbed_dirs = Dir.glob(path)
-      # debug_log("_globbed_files: #{path}: glob is: #{globbed_dirs}")
+      @logger.debug? && @logger.debug("_globbed_files: #{path}: glob is: #{globbed_dirs}")
       if globbed_dirs.empty? && File.file?(path)
         globbed_dirs = [path]
-        # debug_log("_globbed_files: #{path}: glob is: #{globbed_dirs} because glob did not work")
+        @logger.debug? && @logger.debug("_globbed_files: #{path}: glob is: #{globbed_dirs} because glob did not work")
       end
       # return Enumerator
       globbed_dirs.to_enum

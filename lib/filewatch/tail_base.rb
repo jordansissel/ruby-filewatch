@@ -83,7 +83,7 @@ module FileWatch
 
     def _open_file(watched_file, event)
       path = watched_file.path
-      debug_log("_open_file: #{path}: opening")
+      @logger.debug? && @logger.debug("_open_file: #{path}: opening")
       begin
         if @iswindows && defined? JRUBY_VERSION
           watched_file.file_add_opened(Java::RubyFileExt::getRubyFile(path))
@@ -99,7 +99,7 @@ module FileWatch
           @logger.warn("failed to open #{path}: #{$!}")
           @lastwarn[path] = now
         else
-          debug_log("(warn supressed) failed to open #{path}: #{$!.inspect}")
+          @logger.debug? && @logger.debug("(warn supressed) failed to open #{path}: #{$!.inspect}")
         end
         watched_file.watch # set it back to watch so we can try it again
         return false
@@ -120,33 +120,33 @@ module FileWatch
         # and we can't tell if its contents are the same
         # as another file we have watched before.
         last_read_size = @sincedb[sincedb_key]
-        debug_log("#{path}: sincedb last value #{@sincedb[sincedb_key]}, cur size #{stat.size}")
+        @logger.debug? && @logger.debug("#{path}: sincedb last value #{@sincedb[sincedb_key]}, cur size #{stat.size}")
         if stat.size > last_read_size
           # 1) it could really be a new file with lots of new content
           # 2) it could have old content that was read plus new that is not
-          debug_log("#{path}: sincedb: seeking to #{last_read_size}")
+          @logger.debug? && @logger.debug("#{path}: sincedb: seeking to #{last_read_size}")
           watched_file.file_seek(last_read_size) # going with 2
           watched_file.update_bytes_read(last_read_size)
         elsif stat.size == last_read_size
           # 1) it could have old content that was read
           # 2) it could have new content that happens to be the same size
-          debug_log("#{path}: sincedb: seeking to #{last_read_size}")
+          @logger.debug? && @logger.debug("#{path}: sincedb: seeking to #{last_read_size}")
           watched_file.file_seek(last_read_size) # going with 1.
           watched_file.update_bytes_read(last_read_size)
         else
           # it seems to be a new file with less content
-          debug_log("#{path}: last value size is greater than current value, starting over")
+          @logger.debug? && @logger.debug("#{path}: last value size is greater than current value, starting over")
           @sincedb[sincedb_key] = 0
           watched_file.update_bytes_read(0) if watched_file.bytes_read != 0
         end
       elsif event == :create_initial
         if @opts[:start_new_files_at] == :beginning
-          debug_log("#{path}: initial create, no sincedb, seeking to beginning of file")
+          @logger.debug? && @logger.debug("#{path}: initial create, no sincedb, seeking to beginning of file")
           watched_file.file_seek(0)
           @sincedb[sincedb_key] = 0
         else
           # seek to end
-          debug_log("#{path}: initial create, no sincedb, seeking to end #{stat.size}")
+          @logger.debug? && @logger.debug("#{path}: initial create, no sincedb, seeking to end #{stat.size}")
           watched_file.file_seek(stat.size)
           @sincedb[sincedb_key] = stat.size
         end
@@ -157,14 +157,14 @@ module FileWatch
       elsif event == :unignore
         @sincedb[sincedb_key] = watched_file.bytes_read
       else
-        debug_log("#{path}: staying at position 0, no sincedb")
+        @logger.debug? && @logger.debug("#{path}: staying at position 0, no sincedb")
       end
       return true
     end # def _add_to_sincedb
 
     public
     def sincedb_write(reason=nil)
-      debug_log("caller requested sincedb write (#{reason})")
+      @logger.debug? && @logger.debug("caller requested sincedb write (#{reason})")
       _sincedb_write
     end
 
@@ -173,17 +173,17 @@ module FileWatch
       path = @opts[:sincedb_path]
       begin
         File.open(path) do |db|
-          debug_log("_sincedb_open: reading from #{path}")
+          @logger.debug? && @logger.debug("_sincedb_open: reading from #{path}")
           db.each do |line|
             ino, dev_major, dev_minor, pos = line.split(" ", 4)
             sincedb_key = [ino, dev_major.to_i, dev_minor.to_i]
-            debug_log("_sincedb_open: setting #{sincedb_key.inspect} to #{pos.to_i}")
+            @logger.debug? && @logger.debug("_sincedb_open: setting #{sincedb_key.inspect} to #{pos.to_i}")
             @sincedb[sincedb_key] = pos.to_i
           end
         end
       rescue
         #No existing sincedb to load
-        debug_log("_sincedb_open: error: #{path}: #{$!}")
+        @logger.debug? && @logger.debug("_sincedb_open: error: #{path}: #{$!}")
       end
     end # def _sincedb_open
 
@@ -199,7 +199,7 @@ module FileWatch
       rescue Errno::EACCES
         # probably no file handles free
         # maybe it will work next time
-        debug_log("_sincedb_write: error: #{path}: #{$!}")
+        @logger.debug? && @logger.debug("_sincedb_write: error: #{path}: #{$!}")
       end
     end # def _sincedb_write
 

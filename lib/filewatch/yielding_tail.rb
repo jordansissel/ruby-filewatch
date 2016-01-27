@@ -17,7 +17,7 @@ module FileWatch
           _add_to_sincedb(watched_file, event)
         when :create, :create_initial
           if file_is_open
-            debug_log("#{event} for #{path}: file already open")
+            @logger.debug? && @logger.debug("#{event} for #{path}: file already open")
             next
           end
           if _open_file(watched_file, event)
@@ -25,7 +25,7 @@ module FileWatch
           end
         when :modify
           if !file_is_open
-            debug_log(":modify for #{path}, file is not open, opening now")
+            @logger.debug? && @logger.debug(":modify for #{path}, file is not open, opening now")
             if _open_file(watched_file, event)
               yield_read_file(watched_file, &block)
             end
@@ -34,14 +34,14 @@ module FileWatch
           end
         when :delete
           if file_is_open
-            debug_log(":delete for #{path}, closing file")
+            @logger.debug? && @logger.debug(":delete for #{path}, closing file")
             yield_read_file(watched_file, &block)
             watched_file.file_close
           else
-            debug_log(":delete for #{path}, file already closed")
+            @logger.debug? && @logger.debug(":delete for #{path}, file already closed")
           end
         when :timeout
-          debug_log(":timeout for #{path}, closing file")
+          @logger.debug? && @logger.debug(":timeout for #{path}, closing file")
           watched_file.file_close
         else
           @logger.warn("unknown event type #{event} for #{path}")

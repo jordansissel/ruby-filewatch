@@ -67,7 +67,7 @@ describe FileWatch::Watch do
         subscribe_proc.call
         expect(results).to eq([[:create_initial, file_path], [:modify, file_path]])
         expect(loggr.trace_for(:warn).flatten.last).to match(
-          %r{Reached maximum \(1\) open files, try setting close_older})
+          %r{Reached open files limit: 1, set by the 'max_open_files' option or default, try setting close_older})
       end
     end
 
@@ -94,7 +94,7 @@ describe FileWatch::Watch do
             [:create_initial, file_path2], [:modify, file_path2], [:timeout, file_path2]
           ])
         expect(loggr.trace_for(:warn).flatten.last).to match(
-          %r{Reached maximum \(1\) open files, files yet to open})
+          %r{Reached open files limit: 1, set by the 'max_open_files' option or default, files yet to open})
       end
     end
   end

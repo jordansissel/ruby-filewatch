@@ -31,7 +31,7 @@ module FileWatch
           _add_to_sincedb(watched_file, event) unless @sincedb.member?(watched_file.inode)
         when :create, :create_initial
           if file_is_open
-            debug_log("#{event} for #{path}: file already open")
+            @logger.debug? && @logger.debug("#{event} for #{path}: file already open")
             next
           end
           if _open_file(watched_file, event)
@@ -42,22 +42,22 @@ module FileWatch
           if file_is_open
             observe_read_file(watched_file, listener)
           else
-            debug_log(":modify for #{path}, file is not open, opening now")
+            @logger.debug? && @logger.debug(":modify for #{path}, file is not open, opening now")
             if _open_file(watched_file, event)
               observe_read_file(watched_file, listener)
             end
           end
         when :delete
           if file_is_open
-            debug_log(":delete for #{path}, closing file")
+            @logger.debug? && @logger.debug(":delete for #{path}, closing file")
             observe_read_file(watched_file, listener)
             watched_file.file_close
           else
-            debug_log(":delete for #{path}, file already closed")
+            @logger.debug? && @logger.debug(":delete for #{path}, file already closed")
           end
           listener.deleted
         when :timeout
-          debug_log(":timeout for #{path}, closing file")
+          @logger.debug? && @logger.debug(":timeout for #{path}, closing file")
           watched_file.file_close
           listener.timed_out
         else
@@ -87,7 +87,7 @@ module FileWatch
           listener.error
           break
         rescue => e
-          debug_log("observe_read_file: general error reading #{watched_file.path} - error: #{e.inspect}")
+          @logger.debug? && @logger.debug("observe_read_file: general error reading #{watched_file.path} - error: #{e.inspect}")
           listener.error
           break
         end
@@ -97,7 +97,7 @@ module FileWatch
         now = Time.now.to_i
         delta = now - @sincedb_last_write
         if delta >= @opts[:sincedb_write_interval]
-          debug_log("writing sincedb (delta since last write = #{delta})")
+          @logger.debug? && @logger.debug("writing sincedb (delta since last write = #{delta})")
           _sincedb_write
           @sincedb_last_write = now
         end
