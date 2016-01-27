@@ -1,5 +1,6 @@
 # code downloaded from Ruby on Rails 4.2.1
 # https://raw.githubusercontent.com/rails/rails/v4.2.1/activesupport/lib/active_support/core_ext/file/atomic.rb
+# change method name to avoid borking active_support and vice versa
 require 'fileutils'
 
 class File
@@ -13,10 +14,10 @@ class File
   # If your temp directory is not on the same filesystem as the file you're
   # trying to write, you can provide a different temporary directory.
   #
-  #   File.atomic_write('/data/something.important', '/data/tmp') do |file|
+  #   File.write_atomically('/data/something.important', '/data/tmp') do |file|
   #     file.write('hello')
   #   end
-  def self.atomic_write(file_name)
+  def self.write_atomically(file_name)
 
     if File.exist?(file_name)
       # Get original file permissions
