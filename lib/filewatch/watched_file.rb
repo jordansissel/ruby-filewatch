@@ -11,7 +11,8 @@ module FileWatch
     end
 
     attr_reader :bytes_read, :inode, :state, :file, :buffer, :state_history
-    attr_reader :path, :filestat, :accessed_at
+    attr_reader :path, :filestat, :accessed_at, :created_at, :modified_at
+    attr_reader :storage_key, :last_stat_size
     attr_accessor :close_older, :ignore_older, :delimiter
 
     def delimiter
@@ -25,7 +26,8 @@ module FileWatch
       @initial = initial
       @state_history = []
       @state = :watched
-      @filestat = stat
+      set_stat(stat)
+      set_storage_key
       set_accessed_at
     end
 
@@ -36,8 +38,17 @@ module FileWatch
       self
     end
 
+    # subclass may override
+    def compute_storage_key
+      "#{wf.raw_inode}|#{wf.path}"
+    end
+
     def set_accessed_at
       @accessed_at = Time.now.to_f
+    end
+
+    def set_storage_key
+      @storage_key = compute_storage_key
     end
 
     def initial?
@@ -87,6 +98,14 @@ module FileWatch
 
     def update_inode(_inode)
       @inode = _inode
+      set_storage_key
+      @inode
+    end
+
+    def update_path(_path)
+      @path = _path
+      set_storage_key
+      @path
     end
 
     def activate
@@ -139,7 +158,7 @@ module FileWatch
     end
 
     def restat
-      @filestat = File::Stat.new(path)
+      set_stat(File::Stat.new(path))
     end
 
     def set_state(value)
@@ -169,5 +188,30 @@ module FileWatch
     end
 
     def to_s() inspect; end
+
+    def raw_inode
+      @raw_inode ||= @inode.first
+    end
+
+    def exactly_eq?(other)
+      created_at_and_stat_size_eq?(other) &&
+        @bytes_read == other.last_stat_size
+    end
+
+    def created_at_and_stat_size_eq?(other)
+      @created_at == other.created_at &&
+        @last_stat_size == other.last_stat_size
+    end
+
+
+
+    private
+
+    def set_stat(stat)
+      @filestat = stat
+      @last_stat_size = stat.size
+      @created_at = stat.ctime.to_f
+      @modified_at = stat.mtime.to_f
+    end
   end
 end
