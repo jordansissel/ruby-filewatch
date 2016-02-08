@@ -101,9 +101,15 @@ module FileWatch
       end.values
     end
 
+    def _find_loaded(key, value)
+      @store.select do |k, v|
+        !v.discovered? && v.send(key) == value
+      end.values
+    end
+
     def merge_store(wf)
-      same_inodes = _find(:raw_inode, wf.raw_inode)
-      same_paths = _find(:path, wf.path)
+      same_inodes = _find_loaded(:raw_inode, wf.raw_inode)
+      same_paths = _find_loaded(:path, wf.path)
       sames = (same_inodes & same_paths)
       return update_same(wf, sames) if sames.any?
       same_paths -= sames

@@ -6,11 +6,11 @@ module FileWatch
     FakeStat = Struct.new(:size, :ctime, :mtime)
 
     def self.new_initial(path, inode, stat)
-      new(path, inode, stat, true)
+      new(path, inode, stat, true).from_discover
     end
 
     def self.new_ongoing(path, inode, stat)
-      new(path, inode, stat, false)
+      new(path, inode, stat, false).from_discover
     end
 
     def self.deserialize(line)
@@ -26,7 +26,7 @@ module FileWatch
         typ, ca, ma, lss, path, st, sth, brd = "W", 0.0, 0.0, 0, "unknown", "watched", nil, nil
       end
       stat = FakeStat.new(lss.to_i, Float(ca), Float(ma))
-      instance = new_ongoing(path, [ino, 0, 0], stat)
+      instance = new(path, [ino, 0, 0], stat, false).from_sincedb
       instance.set_state(st.to_sym)
       instance.state_history.clear
       instance.state_history.replace(sth.split(",").map(&:to_sym)) if sth
@@ -72,12 +72,26 @@ module FileWatch
       "#{raw_inode}|#{path}"
     end
 
+    def from_discover
+      @discovered = true
+      self
+    end
+
+    def from_sincedb
+      @discovered = false
+      self
+    end
+
     def set_accessed_at
       @accessed_at = Time.now.to_f
     end
 
     def set_storage_key
       @storage_key = compute_storage_key
+    end
+
+    def discovered?
+      @discovered
     end
 
     def initial?
