@@ -194,7 +194,7 @@ module FileWatch
         if @iswindows || File.device?(path)
           IO.write(path, serialize_sincedb, 0)
         else
-          File.atomic_write(path) {|file| file.write(serialize_sincedb) }
+          File.write_atomically(path) {|file| file.write(serialize_sincedb) }
         end
       rescue Errno::EACCES
         # probably no file handles free

@@ -1,7 +1,10 @@
 require "filewatch/buftok"
+require "digest/md5"
 
 module FileWatch
   class WatchedFile
+    FakeStat = Struct.new(:size, :ctime, :mtime)
+
     def self.new_initial(path, inode, stat)
       new(path, inode, stat, true)
     end
@@ -10,9 +13,31 @@ module FileWatch
       new(path, inode, stat, false)
     end
 
+    def self.deserialize(line)
+      return if line.empty?
+      parts = line.split(' ')
+      if parts.size > 4
+        ino, dj, dn, rb, typ, ca, ma, lss, path, st, brd, sth = parts
+        return if typ != 'W'
+        return unless File.exist?(path)
+      else
+        # its a legacy sincedb record
+        ino, dj, dn, rb = parts
+        typ, ca, ma, lss, path, st, sth, brd = "W", 0.0, 0.0, 0, "unknown", "watched", nil, nil
+      end
+      stat = FakeStat.new(lss.to_i, Float(ca), Float(ma))
+      instance = new_ongoing(path, [ino, 0, 0], stat)
+      instance.set_state(st.to_sym)
+      instance.state_history.clear
+      instance.state_history.replace(sth.split(",").map(&:to_sym)) if sth
+      instance.add_bytes_read_digest(brd) if brd
+      instance.update_bytes_read(rb.to_i)
+      instance
+    end
+
     attr_reader :bytes_read, :inode, :state, :file, :buffer, :state_history
     attr_reader :path, :filestat, :accessed_at, :created_at, :modified_at
-    attr_reader :storage_key, :last_stat_size
+    attr_reader :storage_key, :last_stat_size, :bytes_read_digest
     attr_accessor :close_older, :ignore_older, :delimiter
 
     def delimiter
@@ -38,9 +63,13 @@ module FileWatch
       self
     end
 
+    def add_bytes_read_digest(hd)
+      @bytes_read_digest = hd
+    end
+
     # subclass may override
     def compute_storage_key
-      "#{wf.raw_inode}|#{wf.path}"
+      "#{raw_inode}|#{path}"
     end
 
     def set_accessed_at
@@ -56,7 +85,7 @@ module FileWatch
     end
 
     def size_changed?
-      filestat.size != bytes_read
+      @last_stat_size != bytes_read
     end
 
     def inode_changed?(value)
@@ -87,13 +116,13 @@ module FileWatch
       !@file.nil? && !@file.closed?
     end
 
+    def buffer_extract(data)
+      @buffer.extract(data)
+    end
+
     def update_bytes_read(total_bytes_read)
       return if total_bytes_read.nil?
       @bytes_read = total_bytes_read
-    end
-
-    def buffer_extract(data)
-      @buffer.extract(data)
     end
 
     def update_inode(_inode)
@@ -106,6 +135,10 @@ module FileWatch
       @path = _path
       set_storage_key
       @path
+    end
+
+    def update_stat(st)
+      set_stat(st)
     end
 
     def activate
@@ -179,7 +212,7 @@ module FileWatch
       # (Time.now - stat.mtime) <- in jruby, this does int and float
       # conversions before the subtraction and returns a float.
       # so use all floats upfront
-      (Time.now.to_f - filestat.mtime.to_f) > ignore_older
+      (Time.now.to_f - @modified_at) > ignore_older
     end
 
     def file_can_close?
@@ -193,25 +226,48 @@ module FileWatch
       @raw_inode ||= @inode.first
     end
 
-    def exactly_eq?(other)
-      created_at_and_stat_size_eq?(other) &&
-        @bytes_read == other.last_stat_size
+    def content_equal?(other)
+      # use as last resort to compare file content
+      full_digest == other.full_digest
     end
 
-    def created_at_and_stat_size_eq?(other)
+    def equivalent?(other)
       @created_at == other.created_at &&
         @last_stat_size == other.last_stat_size
     end
 
+    def serialize
+      "#{raw_inode} 0 0 #{bytes_read} W #{created_at} #{modified_at} #{last_stat_size} #{path} #{state} #{read_bytes_digest} #{state_history.join(',')}"
+    end
 
+    def content_read_equal?(other)
+      other_digest = other.read_bytes_digest(bytes_read)
+      return false if bytes_read_digest.nil? || other_digest.nil?
+      bytes_read_digest == other_digest
+    end
+
+    def full_digest
+      return unless File.exist?(path)
+      Digest::MD5.file(path).hexdigest
+    end
+
+    def read_bytes_digest(position = @bytes_read)
+      return if position.zero?
+      if position < last_stat_size
+        return unless File.exist?(path)
+        Digest::MD5.hexdigest(File.open(path){|f| f.read(position)})
+      else
+        full_digest
+      end
+    end
 
     private
 
     def set_stat(stat)
-      @filestat = stat
       @last_stat_size = stat.size
       @created_at = stat.ctime.to_f
       @modified_at = stat.mtime.to_f
+      @filestat = stat
     end
   end
 end

@@ -1,4 +1,5 @@
 require "rspec_sequencing"
+require "fileutils"
 
 def formatted_puts(text)
   cfg = RSpec.configuration
@@ -21,6 +22,10 @@ unless RSpec::Matchers.method_defined?(:receive_call_and_args)
 end
 
 module FileWatch
+
+  def self.path_to_fixture(file_name)
+    File.expand_path("../fixtures/#{file_name}", File.dirname(__FILE__))
+  end
 
   def self.make_file_older(path, seconds)
     time = Time.now.to_f - seconds

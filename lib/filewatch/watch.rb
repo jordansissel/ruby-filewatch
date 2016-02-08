@@ -25,7 +25,8 @@ module FileWatch
     end
 
     def self.nix_inode(path, stat)
-      [stat.ino.to_s, stat.dev_major, stat.dev_minor]
+      # dev_* doesn't make sense because same inode could be remounted differently
+      [stat.ino.to_s, 0, 0]
     end
 
     def self.inode(path, stat)
