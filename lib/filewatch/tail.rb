@@ -11,13 +11,11 @@ module FileWatch
     attr_writer :target
 
     def self.new_observing(opts = {})
-      new.tap do |instance|
-        instance.target = ObservingTail.new(opts)
-      end
+      new({}, ObservingTail.new(opts))
     end
 
-    def initialize(opts = {})
-      @target = YieldingTail.new(opts)
+    def initialize(opts = {}, target = YieldingTail.new(opts))
+      @target = target
     end
   end
 end

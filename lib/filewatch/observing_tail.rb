@@ -64,6 +64,8 @@ module FileWatch
           @logger.warn("unknown event type #{event} for #{path}")
         end
       end # @watch.subscribe
+      # when watch.subscribe ends - its because we got quit
+      _sincedb_write
     end # def subscribe
 
     private

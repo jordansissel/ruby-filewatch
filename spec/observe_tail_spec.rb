@@ -21,6 +21,30 @@ describe "FileWatch::Tail (observing)" do
     FileUtils.rm_rf(sincedb_path)
   end
 
+  let(:_cache) { [] }
+
+  context "when sincedb path is given but ENV[\"HOME\"] is not given" do
+    before { _cache << ENV.delete("HOME") }
+    after  { _cache.first.tap{|s| ENV["HOME"] = s unless s.nil?} }
+
+    it "should not raise an exception" do
+      expect do
+        FileWatch::Tail.new_observing(:sincedb_path => sincedb_path, :stat_interval => 0.05)
+      end.not_to raise_error
+    end
+  end
+
+  context "when sincedb path is given but ENV[\"SINCEDB_PATH\"] is not given" do
+    before { _cache << ENV.delete("SINCEDB_PATH") }
+    after  { _cache.first.tap{|s| ENV["SINCEDB_PATH"] = s unless s.nil?} }
+
+    it "should not raise an exception" do
+      expect do
+        FileWatch::Tail.new_observing(:sincedb_path => sincedb_path, :stat_interval => 0.05)
+      end.not_to raise_error
+    end
+  end
+
   context "when watching before files exist (start at end)" do
     subject { FileWatch::Tail.new_observing(
       :sincedb_path => sincedb_path, :stat_interval => 0.05) }
