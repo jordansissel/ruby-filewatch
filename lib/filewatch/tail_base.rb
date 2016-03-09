@@ -209,8 +209,6 @@ module FileWatch
     # before the instance is disposed of.
     def quit
       @watch.quit # <-- should close all the files
-      # and that should allow the sincedb_write to succeed if it could not before
-      _sincedb_write
     end # def quit
 
     public

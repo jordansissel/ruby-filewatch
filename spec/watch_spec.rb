@@ -1,8 +1,15 @@
 require 'filewatch/watch'
+require 'filewatch/watched_file'
 require 'stud/temporary'
 require_relative 'helpers/spec_helper'
 
-describe FileWatch::Watch do
+module FileWatch
+  class Watch4Test < Watch
+    attr_reader :files
+  end
+end
+
+describe FileWatch::Watch4Test do
   before(:all) do
     @thread_abort = Thread.abort_on_exception
     Thread.abort_on_exception = true
@@ -31,7 +38,7 @@ describe FileWatch::Watch do
     end
   end
 
-  subject { FileWatch::Watch.new(:logger => loggr) }
+  subject { FileWatch::Watch4Test.new(:logger => loggr) }
 
   after do
     FileUtils.rm_rf(directory)
@@ -44,8 +51,8 @@ describe FileWatch::Watch do
     let(:actions) do
       RSpec::Sequencing
         .run("create file and watch directory") do
-          File.open(file_path, "wb")  { |file| file.write("line1\nline2\n") }
           File.open(file_path2, "wb") { |file| file.write("lineA\nlineB\n") }
+          File.open(file_path, "wb")  { |file| file.write("line1\nline2\n") }
           subject.watch(watch_dir)
         end
         .then_after(wait_before_quit, "quit after a short time") do
@@ -87,7 +94,7 @@ describe FileWatch::Watch do
       it "opens both files" do
         ENV["FILEWATCH_MAX_FILES_WARN_INTERVAL"] = "0.8"
         subject.max_open_files = max
-        subject.close_older = 1 #seconds
+        subject.close_older = 0.75 #seconds
         subscribe_proc.call
         expect(results).to eq([
             [:create_initial, file_path], [:modify, file_path], [:timeout, file_path],
@@ -135,6 +142,57 @@ describe FileWatch::Watch do
     it "yields create and one modify file events" do
       subscribe_proc.call
       expect(results).to eq([[:create, file_path], [:modify, file_path]])
+    end
+  end
+
+  describe "file is not longer readable" do
+    let(:quit_after) { 0.1 }
+    let(:inode) { double("inode") }
+    let(:stat)  { double("stat", :size => 100) }
+    let(:watched_file) { FileWatch::WatchedFile.new_ongoing(file_path, inode, stat) }
+
+    before do
+      subject.files.store(file_path, watched_file)
+    end
+
+    context "when subscribed and a closed file is no longer readable" do
+      before { watched_file.close }
+      it "it is deleted from the @files hash" do
+        RSpec::Sequencing.run_after(quit_after, "quit") { subject.quit }
+        subscribe_proc.call
+        expect(subject.files.size).to eq(0)
+        expect(results).to eq([])
+      end
+    end
+
+    context "when subscribed and an ignored file is no longer readable" do
+      before { watched_file.ignore }
+      it "it is deleted from the @files hash" do
+        RSpec::Sequencing.run_after(quit_after, "quit") { subject.quit }
+        subscribe_proc.call
+        expect(subject.files.size).to eq(0)
+        expect(results).to eq([])
+      end
+    end
+
+    context "when subscribed and a watched file is no longer readable" do
+      before { watched_file.watch }
+      it "it is deleted from the @files hash" do
+        RSpec::Sequencing.run_after(quit_after, "quit") { subject.quit }
+        subscribe_proc.call
+        expect(subject.files.size).to eq(0)
+        expect(results).to eq([[:delete, file_path]])
+      end
+    end
+
+    context "when subscribed and an active file is no longer readable" do
+      before { watched_file.activate }
+      it "yields a delete event and it is deleted from the @files hash" do
+        RSpec::Sequencing.run_after(quit_after, "quit") { subject.quit }
+        subscribe_proc.call
+        expect(subject.files.size).to eq(0)
+        expect(results).to eq([[:delete, file_path]])
+      end
     end
   end
 
