@@ -35,7 +35,7 @@ module FileWatch
 
     attr_accessor :logger
     attr_accessor :delimiter
-    attr_reader :max_active
+    attr_reader :max_active, :discoverer
 
     def initialize(opts={})
       if opts[:logger]
@@ -44,9 +44,6 @@ module FileWatch
         @logger = Logger.new(STDERR)
         @logger.level = Logger::INFO
       end
-      @watching = []
-      @exclude = []
-      @files = Hash.new
       # we need to be threadsafe about the mutation
       # of the above 2 ivars because the public
       # methods each, discover and watch
@@ -61,6 +58,12 @@ module FileWatch
 
     public
 
+    def add_discoverer(discoverer)
+      @discoverer = discoverer
+      @logger = @discoverer.logger
+      self
+    end
+
     def max_open_files=(value)
       val = value.to_i
       val = 4095 if value.nil? || val <= 0
@@ -68,40 +71,12 @@ module FileWatch
       @max_active = val
     end
 
-    def ignore_older=(value)
-      #nil is allowed but 0 and negatives are made nil
-      if !value.nil?
-        val = value.to_f
-        val = val <= 0 ? nil : val
-      end
-      @ignore_older = val
-    end
-
-    def close_older=(value)
-      if !value.nil?
-        val = value.to_f
-        val = val <= 0 ? nil : val
-      end
-      @close_older = val
-    end
-
-    def exclude(path)
-      path.to_a.each { |p| @exclude << p }
-    end
-
     def watch(path)
       synchronized do
-        if !@watching.member?(path)
-          @watching << path
-          _discover_file(path) do |filepath, stat|
-            WatchedFile.new_initial(
-                filepath, inode(filepath, stat), stat
-              ).init_vars(@delimiter, @ignore_older, @close_older)
-          end
-        end
+        @discoverer.add_path(path)
       end
       return true
-    end # def watch
+    end
 
     def inode(path, stat)
       self.class.inode(path, stat)
@@ -117,11 +92,11 @@ module FileWatch
     #   :unignore - file was ignored, but since then it received new content
     def each(&block)
       synchronized do
-        return if @files.empty?
+        return if @discoverer.empty?
         begin
           file_deletable = []
           # creates this array just once
-          watched_files = @files.values
+          watched_files = @discoverer.watched_files
 
           # look at the closed to see if its changed
           watched_files.select {|wf| wf.closed? }.each do |watched_file|
@@ -166,7 +141,7 @@ module FileWatch
               file_deletable << path
               @logger.debug? && @logger.debug("each: ignored: stat failed: #{path}: (#{$!}), deleting from @files")
             rescue => e
-              @logger.error("each: ignored?: #{path}: (#{e.inspect})")
+              @logger.error("each: ignored?: #{path}: (#{e.inspect}), #{e.backtrace.inspect}")
             end
           end
 
@@ -192,15 +167,15 @@ module FileWatch
                 watched_file.unwatch
                 yield(:delete, watched_file)
                 next
-                @logger.debug? && @logger.debug("each: closed: stat failed: #{path}: (#{$!}), deleting from @files")
+                @logger.debug? && @logger.debug("each: watched?: stat failed: #{path}: (#{$!}), deleting from @files")
               rescue => e
-                @logger.error("each: watched?: #{path}: (#{e.inspect})")
+                @logger.error("each: watched?: #{path}: (#{e.inspect}, #{e.backtrace.take(8).inspect})")
               end
             end
           else
             now = Time.now.to_i
             if (now - @lastwarn_max_files) > MAX_FILES_WARN_INTERVAL
-              waiting = @files.size - @max_active
+              waiting = watched_files.size - @max_active
               specific = if @close_older.nil?
                ", try setting close_older. There are #{waiting} unopened files"
               else
@@ -257,20 +232,14 @@ module FileWatch
             end
           end
         ensure
-          file_deletable.each {|f| @files.delete(f)}
+          @discoverer.delete(file_deletable)
         end
       end
     end # def each
 
     def discover
       synchronized do
-        @watching.each do |path|
-          _discover_file(path) do |filepath, stat|
-            WatchedFile.new_ongoing(
-                filepath, inode(filepath, stat), stat
-              ).init_vars(@delimiter, @ignore_older, @close_older)
-          end
-        end
+        @discoverer.discover
       end
     end
 
@@ -288,7 +257,7 @@ module FileWatch
         break if quit?
         sleep(stat_interval)
       end
-      @files.values.each(&:file_close)
+      @discoverer.close_all
     end # def subscribe
 
     def quit
@@ -301,66 +270,10 @@ module FileWatch
 
     private
 
-    def _discover_file(path)
-      _globbed_files(path).each do |file|
-        next unless File.file?(file)
-        new_discovery = false
-        if @files.member?(file)
-          watched_file = @files[file]
-        else
-          @logger.debug? && @logger.debug("_discover_file: #{path}: new: #{file} (exclude is #{@exclude.inspect})")
-          # let the caller build the object in its context
-          new_discovery = true
-          watched_file = yield(file, File::Stat.new(file))
-        end
-
-        skip = false
-        @exclude.each do |pattern|
-          if File.fnmatch?(pattern, File.basename(file))
-            @logger.debug? && @logger.debug("_discover_file: #{file}: skipping because it " +
-                          "matches exclude #{pattern}") if new_discovery
-            skip = true
-            watched_file.unwatch
-            break
-          end
-        end
-        next if skip
-
-        if new_discovery
-          if watched_file.file_ignorable?
-            @logger.debug? && @logger.debug("_discover_file: #{file}: skipping because it was last modified more than #{@ignore_older} seconds ago")
-            # on discovery we put watched_file into the ignored state and that
-            # updates the size from the internal stat
-            # so the existing contents are not read.
-            # because, normally, a newly discovered file will
-            # have a watched_file size of zero
-            watched_file.ignore
-          end
-          @files[file] = watched_file
-        end
-      end
-    end # def _discover_file
-
-    private
-    def _globbed_files(path)
-      globbed_dirs = Dir.glob(path)
-      @logger.debug? && @logger.debug("_globbed_files: #{path}: glob is: #{globbed_dirs}")
-      if globbed_dirs.empty? && File.file?(path)
-        globbed_dirs = [path]
-        @logger.debug? && @logger.debug("_globbed_files: #{path}: glob is: #{globbed_dirs} because glob did not work")
-      end
-      # return Enumerator
-      globbed_dirs.to_enum
-    end
-
-    private
     def synchronized(&block)
       @lock.synchronize { block.call }
     end
 
-    public
-
-    private
     def reset_quit
       @quit_lock.synchronize { @quit = false }
     end

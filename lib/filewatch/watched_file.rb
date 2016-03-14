@@ -3,7 +3,7 @@ require "digest/md5"
 
 module FileWatch
   class WatchedFile
-    FakeStat = Struct.new(:size, :ctime, :mtime)
+    FakeStat = Struct.new(:size, :mtime)
 
     def self.new_initial(path, inode, stat)
       new(path, inode, stat, true).from_discover
@@ -13,30 +13,8 @@ module FileWatch
       new(path, inode, stat, false).from_discover
     end
 
-    def self.deserialize(line)
-      return if line.empty?
-      parts = line.split(' ')
-      if parts.size > 4
-        ino, dj, dn, rb, typ, ca, ma, lss, path, st, brd, sth = parts
-        return if typ != 'W'
-        return unless File.exist?(path)
-      else
-        # its a legacy sincedb record
-        ino, dj, dn, rb = parts
-        typ, ca, ma, lss, path, st, sth, brd = "W", 0.0, 0.0, 0, "unknown", "watched", nil, nil
-      end
-      stat = FakeStat.new(lss.to_i, Float(ca), Float(ma))
-      instance = new(path, [ino, 0, 0], stat, false).from_sincedb
-      instance.set_state(st.to_sym)
-      instance.state_history.clear
-      instance.state_history.replace(sth.split(",").map(&:to_sym)) if sth
-      instance.add_bytes_read_digest(brd) if brd
-      instance.update_bytes_read(rb.to_i)
-      instance
-    end
-
     attr_reader :bytes_read, :inode, :state, :file, :buffer, :state_history
-    attr_reader :path, :filestat, :accessed_at, :created_at, :modified_at
+    attr_reader :path, :filestat, :accessed_at, :modified_at
     attr_reader :storage_key, :last_stat_size, :bytes_read_digest
     attr_accessor :close_older, :ignore_older, :delimiter
 
@@ -69,7 +47,19 @@ module FileWatch
 
     # subclass may override
     def compute_storage_key
-      "#{raw_inode}|#{path}"
+      "#{path}|#{sdb_key_v1}"
+    end
+
+    def sdb_key_v1
+      @inode.join(" ")
+    end
+
+    def sdb_key_v2
+      @storage_key
+    end
+
+    def set_storage_key
+      @storage_key = compute_storage_key
     end
 
     def from_discover
@@ -84,10 +74,6 @@ module FileWatch
 
     def set_accessed_at
       @accessed_at = Time.now.to_f
-    end
-
-    def set_storage_key
-      @storage_key = compute_storage_key
     end
 
     def discovered?
@@ -240,46 +226,14 @@ module FileWatch
       @raw_inode ||= @inode.first
     end
 
-    def content_equal?(other)
-      # use as last resort to compare file content
-      full_digest == other.full_digest
-    end
-
-    def equivalent?(other)
-      @created_at == other.created_at &&
-        @last_stat_size == other.last_stat_size
-    end
-
     def serialize
-      "#{raw_inode} 0 0 #{bytes_read} W #{created_at} #{modified_at} #{last_stat_size} #{path} #{state} #{read_bytes_digest} #{state_history.join(',')}"
-    end
-
-    def content_read_equal?(other)
-      other_digest = other.read_bytes_digest(bytes_read)
-      return false if bytes_read_digest.nil? || other_digest.nil?
-      bytes_read_digest == other_digest
-    end
-
-    def full_digest
-      return unless File.exist?(path)
-      Digest::MD5.file(path).hexdigest
-    end
-
-    def read_bytes_digest(position = @bytes_read)
-      return if position.zero?
-      if position < last_stat_size
-        return unless File.exist?(path)
-        Digest::MD5.hexdigest(File.open(path){|f| f.read(position)})
-      else
-        full_digest
-      end
+      "#{path} #{raw_inode} #{bytes_read} #{modified_at} #{last_stat_size} #{state} #{state_history.join(',')}"
     end
 
     private
 
     def set_stat(stat)
       @last_stat_size = stat.size
-      @created_at = stat.ctime.to_f
       @modified_at = stat.mtime.to_f
       @filestat = stat
     end

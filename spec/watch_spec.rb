@@ -1,4 +1,5 @@
 require 'filewatch/watch'
+require 'filewatch/discover'
 require 'filewatch/watched_file'
 require 'stud/temporary'
 require_relative 'helpers/spec_helper'
@@ -26,6 +27,8 @@ describe FileWatch::Watch4Test do
   let(:results)   { [] }
   let(:stat_interval) { 0.1 }
   let(:discover_interval) { 4 }
+  let(:opts) { {} }
+  let(:discoverer) { FileWatch::Discover.new(opts, loggr) }
 
   let(:subscribe_proc) do
     lambda do
@@ -38,7 +41,7 @@ describe FileWatch::Watch4Test do
     end
   end
 
-  subject { FileWatch::Watch4Test.new(:logger => loggr) }
+  subject { FileWatch::Watch4Test.new(opts).add_discoverer(discoverer) }
 
   after do
     FileUtils.rm_rf(directory)
@@ -92,16 +95,16 @@ describe FileWatch::Watch4Test do
       let(:wait_before_quit) { 1.25 }
 
       it "opens both files" do
+        opts.update(:close_older => 0.75) #seconds
         ENV["FILEWATCH_MAX_FILES_WARN_INTERVAL"] = "0.8"
         subject.max_open_files = max
-        subject.close_older = 0.75 #seconds
         subscribe_proc.call
         expect(results).to eq([
             [:create_initial, file_path], [:modify, file_path], [:timeout, file_path],
             [:create_initial, file_path2], [:modify, file_path2], [:timeout, file_path2]
           ])
         expect(loggr.trace_for(:warn).flatten.last).to match(
-          %r{Reached open files limit: 1, set by the 'max_open_files' option or default, files yet to open})
+          %r{Reached open files limit: 1, set by the 'max_open_files' option or default, try setting close_older. There are})
       end
     end
   end
@@ -147,12 +150,12 @@ describe FileWatch::Watch4Test do
 
   describe "file is not longer readable" do
     let(:quit_after) { 0.1 }
-    let(:inode) { double("inode") }
-    let(:stat)  { double("stat", :size => 100) }
+    let(:inode) { double("inode", :first => 23453, :join => "23453 0 0") }
+    let(:stat)  { double("stat", :size => 100, :ctime => Time.now, :mtime => Time.now) }
     let(:watched_file) { FileWatch::WatchedFile.new_ongoing(file_path, inode, stat) }
 
     before do
-      subject.files.store(file_path, watched_file)
+      discoverer.files.store(file_path, watched_file)
     end
 
     context "when subscribed and a closed file is no longer readable" do
@@ -160,7 +163,7 @@ describe FileWatch::Watch4Test do
       it "it is deleted from the @files hash" do
         RSpec::Sequencing.run_after(quit_after, "quit") { subject.quit }
         subscribe_proc.call
-        expect(subject.files.size).to eq(0)
+        expect(discoverer.files.size).to eq(0)
         expect(results).to eq([])
       end
     end
@@ -170,7 +173,7 @@ describe FileWatch::Watch4Test do
       it "it is deleted from the @files hash" do
         RSpec::Sequencing.run_after(quit_after, "quit") { subject.quit }
         subscribe_proc.call
-        expect(subject.files.size).to eq(0)
+        expect(discoverer.files.size).to eq(0)
         expect(results).to eq([])
       end
     end
@@ -180,7 +183,7 @@ describe FileWatch::Watch4Test do
       it "it is deleted from the @files hash" do
         RSpec::Sequencing.run_after(quit_after, "quit") { subject.quit }
         subscribe_proc.call
-        expect(subject.files.size).to eq(0)
+        expect(discoverer.files.size).to eq(0)
         expect(results).to eq([[:delete, file_path]])
       end
     end
@@ -190,7 +193,7 @@ describe FileWatch::Watch4Test do
       it "yields a delete event and it is deleted from the @files hash" do
         RSpec::Sequencing.run_after(quit_after, "quit") { subject.quit }
         subscribe_proc.call
-        expect(subject.files.size).to eq(0)
+        expect(discoverer.files.size).to eq(0)
         expect(results).to eq([[:delete, file_path]])
       end
     end
@@ -226,7 +229,7 @@ describe FileWatch::Watch4Test do
   context "when watching a directory with files and a file is renamed to match glob" do
     let(:new_file_path) { file_path + "2.log" }
     before do
-      subject.close_older = 0
+      opts.update(:close_older => 0)
       RSpec::Sequencing
         .run("create file") do
           File.open(file_path, "wb") { |file|  file.write("line1\nline2\n") }
@@ -279,7 +282,7 @@ describe FileWatch::Watch4Test do
 
   context "when close older expiry is enabled" do
     before do
-      subject.close_older = 2
+      opts.update(:close_older => 2)
       RSpec::Sequencing
         .run("create file") do
           File.open(file_path, "wb") { |file|  file.write("line1\nline2\n") }
@@ -300,7 +303,7 @@ describe FileWatch::Watch4Test do
 
   context "when close older expiry is enabled and after timeout the file is appended-to" do
     before do
-      subject.close_older = 2
+      opts.update(:close_older => 2)
 
       RSpec::Sequencing
         .run("create file") do
@@ -325,7 +328,7 @@ describe FileWatch::Watch4Test do
 
   context "when ignore older expiry is enabled and all files are already expired" do
     before do
-      subject.ignore_older = 1
+      opts.update(:ignore_older => 1)
 
       RSpec::Sequencing
         .run("create file older than ignore_older and watch") do
@@ -346,8 +349,7 @@ describe FileWatch::Watch4Test do
 
   context "when ignore_older is less than close_older and all files are not expired" do
     before do
-      subject.ignore_older = 1
-      subject.close_older = 2
+      opts.update(:close_older => 2, :ignore_older => 1)
 
       RSpec::Sequencing
         .run("create file") do
@@ -369,8 +371,7 @@ describe FileWatch::Watch4Test do
 
   context "when ignore_older is less than close_older and all files are expired" do
     before do
-      subject.ignore_older = 10
-      subject.close_older = 2
+      opts.update(:close_older => 2, :ignore_older => 10)
 
       RSpec::Sequencing
         .run("create file older than ignore_older and watch") do
@@ -391,8 +392,7 @@ describe FileWatch::Watch4Test do
 
   context "when ignore older and close older expiry is enabled and after timeout the file is appended-to" do
     before do
-      subject.ignore_older = 20
-      subject.close_older = 1
+      opts.update(:close_older => 2, :ignore_older => 20)
 
       RSpec::Sequencing
         .run("create file older than ignore_older and watch") do
@@ -403,7 +403,7 @@ describe FileWatch::Watch4Test do
         .then_after(0.15, "append more lines to file after file ages more than ignore_older") do
           File.open(file_path, "ab") { |file|  file.write("line3\nline4\n") }
         end
-        .then_after(1.25, "quit after allowing time to close the file") do
+        .then_after(2.0, "quit after allowing time to close the file") do
           subject.quit
         end
     end

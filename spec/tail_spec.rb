@@ -13,19 +13,22 @@ describe "FileWatch::Tail (yielding)" do
     Thread.abort_on_exception = @thread_abort
   end
 
-  let(:file_path) { f = Stud::Temporary.pathname }
-  let(:sincedb_path) { Stud::Temporary.pathname }
+  let(:directory) { Stud::Temporary.directory }
+  let(:dir_sdb) { Stud::Temporary.directory }
+  let(:file_path) { File.join(directory, "1.log") }
+  let(:sincedb_path) { File.join(dir_sdb, "sincedb.log") }
   let(:quit_sleep) { 0.5 }
   let(:quit_proc) { lambda { subject.quit } }
+  let(:sincedb_version) { "v1" }
 
   before :each do
+    FileUtils.rm_rf(sincedb_path)
     Thread.new(subject) { sleep quit_sleep; quit_proc.call } # force the subscribe loop to exit
   end
 
   after :each do
-    FileUtils.rm_rf(file_path)
-    sleep 0.15
-    FileUtils.rm_rf(sincedb_path)
+    FileUtils.rm_rf(directory)
+    FileUtils.rm_rf(dir_sdb)
   end
 
   context "when watching a new file" do
@@ -102,39 +105,37 @@ describe "FileWatch::Tail (yielding)" do
             subject.quit
           end
         subject.subscribe {|_,_|  }
-        stat = File::Stat.new(file_path)
-        sincedb_id = FileWatch::Watch.inode(file_path, stat).join(" ")
-        expect(File.read(sincedb_path)).to eq("#{sincedb_id} #{stat.size}\n")
+        expect(File.read(sincedb_path)).to eq("#{FileWatch.sincedb_record(sincedb_version, file_path)}\n")
       end
     end
 
     context "when restarting tail" do
       let(:restart_actions) do
         RSpec::Sequencing
-        .run("create file") do
-          File.open(file_path, "wb") { |file|  file.write("line1\nline2\n") }
-          stats << File::Stat.new(file_path)
-        end
-        .then("begin tailing") do
-          subject.tail(file_path)
-        end
-        .then_after(quit_sleep, "quit tailing") do
-          subject.quit
-        end
-        .then_after(0.45, "begin tailing again") do
-          results << File.read(sincedb_path)
-          subject.tail(file_path)
-        end
-        .then_after(0.45, "write more lines to the file") do
-          File.open(file_path, "ab") { |file| file.write("line3\nline4\n") }
-          stats << File::Stat.new(file_path)
-        end
-        .then_after(2.1, "quit tailing") do
-          subject.quit
-        end
-        .then_after(0.25, "read sincedb file") do
-          results << File.read(sincedb_path)
-        end
+          .run("create file") do
+            File.open(file_path, "w") { |file|  file.write("line1\nline2\n") }
+            stats << File::Stat.new(file_path)
+          end
+          .then("begin tailing") do
+            subject.tail(file_path)
+          end
+          .then_after(quit_sleep, "quit tailing") do
+            subject.quit
+          end
+          .then_after(0.45, "begin tailing again") do
+            results << File.read(sincedb_path)
+            subject.tail(file_path)
+          end
+          .then_after(0.45, "write more lines to the file") do
+            File.open(file_path, "a") { |file| file.write("line3\nline4\n") }
+            stats << File::Stat.new(file_path)
+          end
+          .then_after(2.1, "quit tailing") do
+            subject.quit
+          end
+          .then_after(0.25, "read sincedb file") do
+            results << File.read(sincedb_path)
+          end
       end
 
       let(:results) { [] }
@@ -151,10 +152,8 @@ describe "FileWatch::Tail (yielding)" do
         subject.subscribe {|_,_| }
         subject.subscribe {|_,_| }
         restart_actions.value
-        stat = stats.last
-        sincedb_id = FileWatch::Watch.inode(file_path, stat).join(" ")
-        expect(results.first).to eq("#{sincedb_id} #{stats.first.size}\n")
-        expect(results.last).to eq("#{sincedb_id} #{stats.last.size}\n")
+        expect(results.first).to eq("#{FileWatch.sincedb_record(sincedb_version, file_path, stats.first.size)}\n")
+        expect(results.last).to eq("#{FileWatch.sincedb_record(sincedb_version, file_path, stats.last.size)}\n")
       end
     end
   end
@@ -163,30 +162,31 @@ describe "FileWatch::Tail (yielding)" do
     let(:lineA) { "a" * 12000 }
     let(:lineB) { "b" * 25000 }
     let(:lineC) { "c" * 8000 }
-    subject { FileWatch::Tail.new(:sincedb_path => sincedb_path, :start_new_files_at => :beginning) }
-
-    before :each do
+    let(:flags) { [false] }
+    let(:opts)  { {:sincedb_path => sincedb_path, :start_new_files_at => :beginning} }
+    let(:new_subject) { FileWatch::Tail.new(opts) }
+    let(:quit_proc) { lambda {  } }
+    before do
       IO.write(file_path, "#{lineA}\n#{lineB}\n#{lineC}\n")
+      subject.tail(file_path)
+      subject.subscribe {|f, l| break if flags[0]; flags.unshift(true)}
+      subject.sincedb_write
+      subject.quit
     end
 
+    subject { FileWatch::Tail.new(opts) }
+
     context "when restarting after stopping at the first line" do
-
-      let(:new_subject) { FileWatch::Tail.new(:sincedb_path => sincedb_path, :start_new_files_at => :beginning) }
-
-      before :each do
-        subject.tail(file_path)
-        subject.subscribe {|f, l| break if @test; @test = 1}
-        subject.sincedb_write
-        subject.quit
-        Thread.new(new_subject) { sleep 0.5; new_subject.quit } # force the subscribe loop to exit
-      end
-
       it "should store in sincedb the position up until the first string" do
-        device, dev_major, dev_minor, pos = *IO.read(sincedb_path).split(" ").map {|n| n.to_i }
-        expect(pos).to eq(12001) # string.bytesize + "\n".bytesize
+        pos = FileWatch.extract_pos(IO.read(sincedb_path))
+        expect(pos.to_i).to eq(lineA.bytesize + "\n".bytesize)
       end
 
       it "should read the second and third lines entirely" do
+        RSpec::Sequencing
+          .run_after(0.25, "quit new_subject") do
+            new_subject.quit
+          end
         new_subject.tail(file_path) # re-tail file
         expect { |b| new_subject.subscribe(&b) }.to yield_successive_args([file_path, lineB], [file_path, lineC])
       end
@@ -194,10 +194,6 @@ describe "FileWatch::Tail (yielding)" do
   end
 
   context "when watching a directory" do
-
-    let(:directory) { Stud::Temporary.directory }
-    let(:file_path) { File.join(directory, "1.log") }
-
     subject { FileWatch::Tail.new(:sincedb_path => sincedb_path, :start_new_files_at => :beginning, :stat_interval => 0) }
 
     before :each do
@@ -214,14 +210,13 @@ describe "FileWatch::Tail (yielding)" do
     end
 
     context "when a file is renamed" do
-
       before :each do
         expect { |b| subject.subscribe(&b) }.to yield_successive_args([file_path, "line1"], [file_path, "line2"])
         File.rename(file_path, file_path + ".bak")
       end
 
       it "should not re-read the file" do
-        Thread.new(subject) { |s| sleep 1; s.quit }
+        RSpec::Sequencing.run_after(1.0, "quit") { subject.quit }
         expect { |b| subject.subscribe(&b) }.not_to yield_control
       end
     end

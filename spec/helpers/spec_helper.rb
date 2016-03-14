@@ -22,6 +22,25 @@ unless RSpec::Matchers.method_defined?(:receive_call_and_args)
 end
 
 module FileWatch
+  def self.extract_pos(sincedb_record)
+    sincedb_record.split(" ").last
+  end
+
+  def self.sincedb_key(version, path, stat = File::Stat.new(path))
+    ino = FileWatch::Watch.inode(path, stat)
+    if version == "v1"
+      "#{ino.join(' ')}"
+    else
+      "#{path}|#{ino.join(' ')}"
+    end
+  end
+
+  def self.sincedb_record(version, path, position = nil)
+    stat = File::Stat.new(path)
+    pos = position || stat.size
+    ino = FileWatch::Watch.inode(path, stat)
+    "#{sincedb_key(version, path, stat)} #{pos}"
+  end
 
   def self.path_to_fixture(file_name)
     File.expand_path("../fixtures/#{file_name}", File.dirname(__FILE__))

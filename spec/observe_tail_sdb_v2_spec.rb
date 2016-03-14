@@ -2,7 +2,7 @@ require 'filewatch/tail'
 require 'stud/temporary'
 require_relative 'helpers/spec_helper'
 
-describe "FileWatch::Tail (observing) v1 sincedb" do
+describe "FileWatch::Tail (observing) v2 sincedb" do
   before(:all) do
     @thread_abort = Thread.abort_on_exception
     Thread.abort_on_exception = true
@@ -17,8 +17,8 @@ describe "FileWatch::Tail (observing) v1 sincedb" do
   let(:dir_sdb) { Stud::Temporary.directory }
   let(:file_path) { File.join(directory, "1.log") }
   let(:sincedb_path) { File.join(dir_sdb, "sincedb.log") }
-  let(:sincedb_version) { "v1" }
-  let(:opts) { {:sincedb_path => sincedb_path, :start_new_files_at => :beginning, :stat_interval => 0.05, :sincedb_version => 1} }
+  let(:sincedb_version) { "v2" }
+  let(:opts) { {:sincedb_path => sincedb_path, :start_new_files_at => :beginning, :stat_interval => 0.05, :sincedb_version => 2} }
 
   after :each do
     FileUtils.rm_rf(directory)
@@ -276,7 +276,7 @@ describe "FileWatch::Tail (observing) v1 sincedb" do
     context "when a file is renamed inside the watch pattern" do
       let(:new_file_path) { File.join(directory, "1renamed.log") }
 
-      it "'deletes' the old file and does not re-read the renamed file" do
+      it "'deletes' the old file and reads the renamed file" do
         RSpec::Sequencing
           .run("create file and tail") do
             File.open(file_path, "wb") { |file| file.write("line1\nline2\n") }
@@ -294,8 +294,8 @@ describe "FileWatch::Tail (observing) v1 sincedb" do
         expect(observer.listeners[file_path].lines).to eq(result_cache[:before_lines])
         expect(result_cache[:before_calls]).to         eq([:create, :accept, :accept, :eof])
         expect(observer.listeners[file_path].calls).to eq([:create, :accept, :accept, :eof, :eof, :delete])
-        expect(observer.listeners[new_file_path].lines).to eq([])
-        expect(observer.listeners[new_file_path].calls).to eq([:create, :eof])
+        expect(observer.listeners[new_file_path].lines).to eq(["line1", "line2"])
+        expect(observer.listeners[new_file_path].calls).to eq([:create, :accept, :accept, :eof])
       end
     end
 
@@ -398,7 +398,9 @@ describe "FileWatch::Tail (observing) v1 sincedb" do
       end
 
       context "when close_older is set" do
-        subject { FileWatch::Tail.new_observing(opts.update(:close_older => 1)) }
+        subject do
+          FileWatch::Tail.new_observing(opts.update(:close_older => 1))
+        end
 
         it "the files are closed before quitting" do
           RSpec::Sequencing
