@@ -37,6 +37,10 @@ module FileWatch
       @data.size
     end
 
+    def to_a
+      [@fingerprint, @offset, @size]
+    end
+
     private
 
     def set_fingerprint(file)

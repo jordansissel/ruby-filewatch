@@ -5,6 +5,7 @@ module FileWatch
 
   FP_BYTE_SIZE = 255
   FILE_READ_SIZE = 32768
+  SDB_EXPIRES_DAYS = 10
 
   require "filewatch/helper"
 
@@ -29,10 +30,18 @@ module FileWatch
     FileOpener = ::File
   end
 
+  FakeStat = Struct.new(:size, :mtime)
+
+  class NoSinceDBPathGiven < StandardError; end
+  # how often (in seconds) we @logger.warn a failed file open, per path.
+  OPEN_WARN_INTERVAL = ENV.fetch("FILEWATCH_OPEN_WARN_INTERVAL", 300).to_i
+  MAX_FILES_WARN_INTERVAL = ENV.fetch("FILEWATCH_MAX_FILES_WARN_INTERVAL", 20).to_i
+
   require "filewatch/buftok"
   require "filewatch/fingerprinter"
   require "filewatch/watched_file"
   require "filewatch/discover"
+  require "filewatch/sincedb_value"
   require "filewatch/since_db"
   require "filewatch/since_db_v2"
   require "filewatch/since_db_upgrader"
@@ -42,12 +51,6 @@ module FileWatch
   require "filewatch/tail"
 
   require "logger"
-
-  FakeStat = Struct.new(:size, :mtime)
-  class NoSinceDBPathGiven < StandardError; end
-  # how often (in seconds) we @logger.warn a failed file open, per path.
-  OPEN_WARN_INTERVAL = ENV.fetch("FILEWATCH_OPEN_WARN_INTERVAL", 300).to_i
-  MAX_FILES_WARN_INTERVAL = ENV.fetch("FILEWATCH_MAX_FILES_WARN_INTERVAL", 20).to_i
 
   class NullListener
     def initialize(path) @path = path; end
