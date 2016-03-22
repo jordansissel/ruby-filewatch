@@ -1,3 +1,5 @@
+require 'filewatch/boot_setup' unless defined?(FileWatch)
+
 require "filewatch/yielding_tail"
 require "filewatch/observing_tail"
 require "forwardable"

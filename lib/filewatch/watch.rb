@@ -1,12 +1,4 @@
-require "logger"
-require_relative 'watched_file'
-
-if RbConfig::CONFIG['host_os'] =~ /mswin|mingw|cygwin/
-  require "filewatch/winhelper"
-  FILEWATCH_INODE_METHOD = :win_inode
-else
-  FILEWATCH_INODE_METHOD = :nix_inode
-end
+require 'filewatch/boot_setup' unless defined?(FileWatch)
 
 module FileWatch
   # TODO make a WatchedFilesDb class that holds the watched_files instead of a hash
@@ -16,9 +8,6 @@ module FileWatch
   # some parts of the each method should be handled by it, e.g.
   # wfs_db.<state>_iterator{|wf| }, trapping the Errno::ENOENT, auto_delete and yield wtached_file
   class Watch
-
-    MAX_FILES_WARN_INTERVAL = ENV.fetch("FILEWATCH_MAX_FILES_WARN_INTERVAL", 20).to_i
-
     def self.win_inode(path, stat)
       fileId = Winhelper.GetWindowsUniqueFileIdentifier(path)
       [fileId, 0, 0] # dev_* doesn't make sense on Windows

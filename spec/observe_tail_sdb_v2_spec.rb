@@ -1,4 +1,3 @@
-require 'filewatch/tail'
 require 'stud/temporary'
 require_relative 'helpers/spec_helper'
 
@@ -58,7 +57,7 @@ describe "FileWatch::Tail (observing) v2 sincedb" do
           subject.tail(file_path)
           File.open(file_path, "wb") { |file| file.write("line1\nline2\n") }
         end
-        .then_after(0.55, "quit") do
+        .then_after(0.75, "quit") do
           subject.quit
         end
       subject.subscribe(observer)

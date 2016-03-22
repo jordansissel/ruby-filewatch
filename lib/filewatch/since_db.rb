@@ -1,14 +1,4 @@
-require "filewatch/helper"
-require "rbconfig"
-
-if RbConfig::CONFIG['host_os'] =~ /mswin|mingw|cygwin/
-  require "filewatch/winhelper"
-end
-
-if defined?(JRUBY_VERSION)
-  include Java
-  require "JRubyFileExtension.jar"
-end
+require 'filewatch/boot_setup' unless defined?(FileWatch)
 
 module FileWatch
   class SinceDb
@@ -17,7 +7,6 @@ module FileWatch
 
     def initialize(opts, loggr)
       @logger = loggr
-      @iswindows = ((RbConfig::CONFIG['host_os'] =~ /mswin|mingw|cygwin/) != nil)
       @path = opts[:sincedb_path]
       @lastwarn = Hash.new { |h, k| h[k] = 0 }
       @sincedb_last_write = 0
@@ -109,7 +98,7 @@ module FileWatch
 
     def sincedb_write
       begin
-        if @iswindows || File.device?(path)
+        if HOST_OS_WINDOWS || File.device?(path)
           IO.write(path, serialize_sincedb, 0)
         else
           File.write_atomically(path) {|file| file.write(serialize) }

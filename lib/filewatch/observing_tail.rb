@@ -1,23 +1,9 @@
-require 'filewatch/tail_base'
+require 'filewatch/boot_setup' unless defined?(FileWatch)
 
 module FileWatch
   class ObservingTail
     include TailBase
     public
-
-    class NullListener
-      def initialize(path) @path = path; end
-      def accept(line) end
-      def deleted() end
-      def created() end
-      def error() end
-      def eof() end
-      def timed_out() end
-    end
-
-    class NullObserver
-      def listener_for(path) NullListener.new(path); end
-    end
 
     def subscribe(observer = NullObserver.new)
       @watch.subscribe(@opts[:stat_interval],
@@ -74,7 +60,7 @@ module FileWatch
       changed = false
       loop do
         begin
-          data = watched_file.file_read(32768)
+          data = watched_file.file_read(FILE_READ_SIZE)
           changed = true
           watched_file.buffer_extract(data).each do |line|
             listener.accept(line)

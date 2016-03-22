@@ -1,14 +1,5 @@
-require 'filewatch/watch'
-require 'filewatch/discover'
-require 'filewatch/watched_file'
 require 'stud/temporary'
 require_relative 'helpers/spec_helper'
-
-module FileWatch
-  class Watch4Test < Watch
-    attr_reader :files
-  end
-end
 
 describe FileWatch::Watch4Test do
   before(:all) do

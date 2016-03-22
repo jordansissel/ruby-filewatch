@@ -1,19 +1,8 @@
-require "filewatch/discover"
-require "filewatch/since_db"
-require "filewatch/since_db_v2"
-require "filewatch/since_db_upgrader"
-
-require "filewatch/watch"
-require "logger"
+require 'filewatch/boot_setup' unless defined?(FileWatch)
 
 module FileWatch
   module TailBase
-    # how often (in seconds) we @logger.warn a failed file open, per path.
-    OPEN_WARN_INTERVAL = ENV.fetch("FILEWATCH_OPEN_WARN_INTERVAL", 300).to_i
-
     attr_reader :logger
-
-    class NoSinceDBPathGiven < StandardError; end
 
     public
     # TODO move sincedb to watch.rb
@@ -42,13 +31,13 @@ module FileWatch
       end
       @watch = build_watch(@opts, @logger)
       @delimiter_byte_size = @opts[:delimiter].bytesize
-      upgrader = FileWatch::SinceDbUpgrader.new(@watch.discoverer, @opts, @logger)
+      upgrader = SinceDbUpgrader.new(@watch.discoverer, @opts, @logger)
       @sincedb = upgrader.opened_sincedb
     end
 
     def build_watch(opts, logger)
-      discoverer = FileWatch::Discover.new(opts, logger)
-      watch = FileWatch::Watch.new(opts).add_discoverer(discoverer)
+      discoverer = Discover.new(opts, logger)
+      watch = Watch.new(opts).add_discoverer(discoverer)
       watch.max_open_files = opts[:max_open_files]
       watch
     end
@@ -95,11 +84,7 @@ module FileWatch
       path = watched_file.path
       @logger.debug? && @logger.debug("_open_file: #{path}: opening")
       begin
-        if @iswindows && defined? JRUBY_VERSION
-          watched_file.file_add_opened(Java::RubyFileExt::getRubyFile(path))
-        else
-          watched_file.file_add_opened(File.open(path))
-        end
+        watched_file.file_add_opened(FileOpener.open(path))
       rescue
         # don't emit this message too often. if a file that we can't
         # read is changing a lot, we'll try to open it more often,

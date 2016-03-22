@@ -1,4 +1,3 @@
-require 'filewatch/tail'
 require 'stud/temporary'
 require_relative 'helpers/spec_helper'
 

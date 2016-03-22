@@ -1,6 +1,4 @@
-require 'filewatch/tail'
 require 'stud/temporary'
-require "rbconfig"
 require_relative 'helpers/spec_helper'
 
 describe "FileWatch::Tail (yielding)" do

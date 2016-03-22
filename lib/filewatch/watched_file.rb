@@ -1,10 +1,7 @@
-require "filewatch/buftok"
-require "digest/md5"
+require 'filewatch/boot_setup' unless defined?(FileWatch)
 
 module FileWatch
   class WatchedFile
-    FakeStat = Struct.new(:size, :mtime)
-
     def self.new_initial(path, inode, stat)
       new(path, inode, stat, true).from_discover
     end
@@ -14,7 +11,7 @@ module FileWatch
     end
 
     attr_reader :bytes_read, :inode, :state, :file, :buffer, :state_history
-    attr_reader :path, :filestat, :accessed_at, :modified_at
+    attr_reader :path, :filestat, :accessed_at, :modified_at, :fingerprints
     attr_reader :storage_key, :last_stat_size, :bytes_read_digest
     attr_accessor :close_older, :ignore_older, :delimiter
 
@@ -29,7 +26,9 @@ module FileWatch
       @initial = initial
       @state_history = []
       @state = :watched
+      @fingerprints = []
       set_stat(stat)
+      get_fingerprints
       set_storage_key
       set_accessed_at
     end
@@ -88,13 +87,9 @@ module FileWatch
       @last_stat_size != bytes_read
     end
 
-    def inode_changed?(value)
-      self.inode != value
-    end
-
     def file_add_opened(rubyfile)
       @file = rubyfile
-      @buffer = FileWatch::BufferedTokenizer.new(delimiter || "\n")
+      @buffer = BufferedTokenizer.new(delimiter || "\n")
     end
 
     def file_close
@@ -220,6 +215,10 @@ module FileWatch
       (Time.now.to_f - @accessed_at) > close_older
     end
 
+    def inode_changed?(value)
+      self.inode != value
+    end
+
     def to_s() inspect; end
 
     def raw_inode
@@ -232,9 +231,32 @@ module FileWatch
 
     private
 
+    def get_fingerprints
+      # if a new truncated file is discovered before content is added
+      # defer the fingerprinting till later
+      return if @last_stat_size == 0
+      begin
+        file = FileOpener.open(@path)
+        [0, compute_last_fp_offset].compact.each do |offset|
+          @fingerprints << Fingerprinter.new(@path, offset).read_file(file)
+        end
+      rescue => e
+        # log the error
+      ensure
+        file.close if !file.nil?
+      end
+    end
+
+    def compute_last_fp_offset
+      return if @last_stat_size < FP_BYTE_SIZE
+      return if @read_blocks == 0
+      @read_blocks * FILE_READ_SIZE
+    end
+
     def set_stat(stat)
       @last_stat_size = stat.size
       @modified_at = stat.mtime.to_f
+      @read_blocks, @last_read_block_size = @last_stat_size.divmod(FILE_READ_SIZE)
       @filestat = stat
     end
   end

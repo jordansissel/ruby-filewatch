@@ -1,5 +1,6 @@
 require "rspec_sequencing"
 require "fileutils"
+require "filewatch/boot_setup"
 
 def formatted_puts(text)
   cfg = RSpec.configuration
@@ -27,7 +28,7 @@ module FileWatch
   end
 
   def self.sincedb_key(version, path, stat = File::Stat.new(path))
-    ino = FileWatch::Watch.inode(path, stat)
+    ino = Watch.inode(path, stat)
     if version == "v1"
       "#{ino.join(' ')}"
     else
@@ -38,7 +39,7 @@ module FileWatch
   def self.sincedb_record(version, path, position = nil)
     stat = File::Stat.new(path)
     pos = position || stat.size
-    ino = FileWatch::Watch.inode(path, stat)
+    ino = Watch.inode(path, stat)
     "#{sincedb_key(version, path, stat)} #{pos}"
   end
 
@@ -49,6 +50,10 @@ module FileWatch
   def self.make_file_older(path, seconds)
     time = Time.now.to_f - seconds
     File.utime(time, time, path)
+  end
+
+  class Watch4Test < Watch
+    attr_reader :files
   end
 
   class TracerBase

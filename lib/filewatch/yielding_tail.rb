@@ -1,4 +1,4 @@
-require 'filewatch/tail_base'
+require 'filewatch/boot_setup' unless defined?(FileWatch)
 
 module FileWatch
   class YieldingTail

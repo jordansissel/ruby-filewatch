@@ -1,12 +1,10 @@
-require "filewatch/discover"
-require "filewatch/since_db"
-require "filewatch/since_db_v2"
+require 'filewatch/boot_setup' unless defined?(FileWatch)
 
 module FileWatch
   class SinceDbUpgrader
     def initialize(discoverer, opts, loggr)
-      @old_sincedb = FileWatch::SinceDb.new(opts, loggr)
-      @new_sincedb = FileWatch::SinceDbV2.new(opts, loggr)
+      @old_sincedb = SinceDb.new(opts, loggr)
+      @new_sincedb = SinceDbV2.new(opts, loggr)
       @discoverer = discoverer
       @path = @old_sincedb.path
       @sincedb_version_from_config = opts.fetch(:sincedb_version, 1)
