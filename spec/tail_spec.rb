@@ -1,4 +1,6 @@
-require 'stud/temporary'
+
+__END__
+
 require_relative 'helpers/spec_helper'
 
 describe "FileWatch::Tail (yielding)" do
@@ -121,7 +123,7 @@ describe "FileWatch::Tail (yielding)" do
             subject.quit
           end
           .then_after(0.45, "begin tailing again") do
-            results << File.read(sincedb_path)
+            results << File.read(sincedb_path).chomp
             subject.tail(file_path)
           end
           .then_after(0.45, "write more lines to the file") do
@@ -132,7 +134,7 @@ describe "FileWatch::Tail (yielding)" do
             subject.quit
           end
           .then_after(0.25, "read sincedb file") do
-            results << File.read(sincedb_path)
+            results << File.read(sincedb_path).chomp
           end
       end
 

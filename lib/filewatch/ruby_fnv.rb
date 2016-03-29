@@ -8,6 +8,11 @@ module FileWatch
     MOD32   = 2 ** 32
     MOD64   = 2 ** 64
 
+    def self.coerce_bignum(i)
+      # for compatibility with jruby impl
+      i
+    end
+
     def initialize(data)
       @bytes = data.bytes
       @size = data.bytesize

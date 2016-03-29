@@ -1,30 +1,9 @@
 require 'filewatch/boot_setup' unless defined?(FileWatch)
 
 module FileWatch
-  # TODO make a WatchedFilesDb class that holds the watched_files instead of a hash
-  # it should support an 'identity' of path + inode
-  # it should be serializable instead of the sincedb
-  # it should be deserializable to recreate the exact state all files were in as last seen
-  # some parts of the each method should be handled by it, e.g.
-  # wfs_db.<state>_iterator{|wf| }, trapping the Errno::ENOENT, auto_delete and yield wtached_file
   class Watch
-    def self.win_inode(path, stat)
-      fileId = Winhelper.GetWindowsUniqueFileIdentifier(path)
-      [fileId, 0, 0] # dev_* doesn't make sense on Windows
-    end
-
-    def self.nix_inode(path, stat)
-      # dev_* doesn't make sense because same inode could be remounted differently
-      [stat.ino.to_s, 0, 0]
-    end
-
-    def self.inode(path, stat)
-      send(FILEWATCH_INODE_METHOD, path, stat)
-    end
-
-    attr_accessor :logger
     attr_accessor :delimiter
-    attr_reader :max_active, :discoverer
+    attr_reader :logger, :max_active, :discoverer
 
     def initialize(opts={})
       if opts[:logger]
@@ -47,9 +26,13 @@ module FileWatch
 
     public
 
+    def logger=(loggr)
+      @discoverer.logger = loggr if @discoverer
+      @logger = loggr
+    end
+
     def add_discoverer(discoverer)
       @discoverer = discoverer
-      @logger = @discoverer.logger
       self
     end
 
@@ -67,16 +50,13 @@ module FileWatch
       return true
     end
 
-    def inode(path, stat)
-      self.class.inode(path, stat)
-    end
-
     # Calls &block with params [event_type, path]
     # event_type can be one of:
     #   :create_initial - initially present file (so start at end for tail)
     #   :create - file is created (new file after initial globs, start at 0)
-    #   :modify - file is modified (size increases)
-    #   :delete - file is deleted
+    #   :grow   - file has more content
+    #   :shrink - file has less content
+    #   :delete   - file can't be read
     #   :timeout - file is closable
     #   :unignore - file was ignored, but since then it received new content
     def each(&block)
@@ -93,17 +73,18 @@ module FileWatch
             break if quit?
             begin
               stat = watched_file.restat
-              if watched_file.size_changed? || watched_file.inode_changed?(inode(path,stat))
+              if watched_file.size_changed?
                 # if the closed file changed, move it to the watched state
                 # not to active state because we want to use MAX_OPEN_FILES throttling.
+                watched_file.invalidate_fingerprints!
                 watched_file.watch
               end
             rescue Errno::ENOENT
               # file has gone away or we can't read it anymore.
               file_deletable << path
-              @logger.debug? && @logger.debug("each: closed?: stat failed: #{path}: (#{$!}), deleting from @files")
+              @logger.debug? && @logger.debug("Watch each: closed?: stat failed: #{path}: (#{$!}), deleting from @files")
             rescue => e
-              @logger.error("each: closed?: #{path}: (#{e.inspect})")
+              @logger.error("Watch each: closed?: #{path}: (#{e.inspect})")
             end
           end
           return if quit?
@@ -114,7 +95,7 @@ module FileWatch
             break if quit?
             begin
               stat = watched_file.restat
-              if watched_file.size_changed? || watched_file.inode_changed?(inode(path,stat))
+              if watched_file.size_changed?
                 # if the ignored file changed, move it to the watched state
                 # not to active state because we want to use MAX_OPEN_FILES throttling.
                 # this file has not been yielded to the block yet
@@ -122,6 +103,7 @@ module FileWatch
                 # was first ignored we updated the bytes_read to the stat.size at that time.
                 # by adding this to the sincedb so that the subsequent modify
                 # event can detect the change
+                watched_file.invalidate_fingerprints!
                 watched_file.watch
                 yield(:unignore, watched_file)
               end
@@ -138,16 +120,24 @@ module FileWatch
 
           # Send any creates.
           if (to_take = @max_active - watched_files.count{|wf| wf.active?}) > 0
-            watched_files.select {|wf| wf.watched? }.take(to_take).each do |watched_file|
+            watched_files.select {|wf| wf.watched?}.take(to_take).each do |watched_file|
               break if quit?
               path = watched_file.path
               begin
+
                 stat = watched_file.restat
                 watched_file.activate
+                # skip the open now because we can't have a
+                # file opened without a sincedb entry
+                next if watched_file.unstorable?
                 # don't do create again
                 next if watched_file.state_history_any?(:closed, :ignored)
                 # if the file can't be opened during the yield
                 # its state is set back to watched
+                if watched_file.grown? || watched_file.shrunk?
+                  @logger.debug? && @logger.debug("Watch Watch each: activating: invalidating fps for path #{path}")
+                  watched_file.invalidate_fingerprints!
+                end
                 sym = watched_file.initial? ? :create_initial : :create
                 yield(sym, watched_file)
               rescue Errno::ENOENT
@@ -156,9 +146,9 @@ module FileWatch
                 watched_file.unwatch
                 yield(:delete, watched_file)
                 next
-                @logger.debug? && @logger.debug("each: watched?: stat failed: #{path}: (#{$!}), deleting from @files")
+                @logger.debug? && @logger.debug("Watch each: watched?: stat failed: #{path}: (#{$!}), deleting from @files")
               rescue => e
-                @logger.error("each: watched?: #{path}: (#{e.inspect}, #{e.backtrace.take(8).inspect})")
+                @logger.error("Watch each: watched?: #{path}: (#{e.inspect}, #{e.backtrace.take(8).inspect})")
               end
             end
           else
@@ -187,37 +177,63 @@ module FileWatch
             rescue Errno::ENOENT
               # file has gone away or we can't read it anymore.
               file_deletable << path
-              @logger.debug? && @logger.debug("each: active: stat failed: #{path}: (#{$!}), deleting from @files")
+              @logger.debug? && @logger.debug("Watch each: active: stat failed: #{path}: (#{$!}), deleting from @files")
               watched_file.unwatch
               yield(:delete, watched_file)
               next
             rescue => e
-              @logger.error("each: active?: #{path}: (#{e.inspect})")
+              @logger.error("Watch each: active?: #{path}: (#{e.inspect})")
               next
             end
 
             if watched_file.file_closable?
-              @logger.debug? && @logger.debug("each: active: file expired: #{path}")
+              @logger.debug? && @logger.debug("Watch each: active: file expired: #{path}")
               yield(:timeout, watched_file)
               watched_file.close
               next
             end
 
-            _inode = inode(path,stat)
-            read_thus_far = watched_file.bytes_read
+            shrinking = watched_file.shrunk?
+            growing = watched_file.grown?
+
+            next unless growing || shrinking
+
             # we don't update the size here, its updated when we actually read
-            if watched_file.inode_changed?(_inode)
-              @logger.debug? && @logger.debug("each: new inode: #{path}: old inode was #{watched_file.inode.inspect}, new is #{_inode.inspect}")
-              watched_file.update_inode(_inode)
-              yield(:delete, watched_file)
-              yield(:create, watched_file)
-            elsif stat.size < read_thus_far
-              @logger.debug? && @logger.debug("each: file rolled: #{path}: new size is #{stat.size}, old size #{read_thus_far}")
-              yield(:delete, watched_file)
-              yield(:create, watched_file)
-            elsif stat.size > read_thus_far
-              @logger.debug? && @logger.debug("each: file grew: #{path}: old size #{read_thus_far}, new size #{stat.size}")
-              yield(:modify, watched_file)
+            if shrinking
+              @logger.debug? && @logger.debug("Watch each: file rolled: #{path}: new size is #{stat.size}, old size #{watched_file.bytes_read}")
+              if watched_file.invalidate_fingerprints!
+                # reset storage_key, old sincedb record is orphaned
+                watched_file.file_close
+                # if truncated fully
+                # no action, wait for grow
+                if !watched_file.unstorable?
+                  # truncated fully with new content
+                  # but new file not in sincedb
+                  yield(:shrink, watched_file)
+                end
+              else
+                # truncated partially and in sincedb
+                # read from eof
+                yield(:shrink, watched_file)
+              end
+            end
+
+            if growing
+              @logger.debug? && @logger.debug("Watch each: file grew: #{path}: old size #{watched_file.bytes_read}, new size #{stat.size}")
+              if watched_file.invalidate_fingerprints!
+                # reset storage_key, old sincedb record is orphaned
+                # was the file opened before?
+                if watched_file.file_open?
+                  # new file content
+                  watched_file.file_close
+                  yield(:grow, watched_file)
+                else
+                  yield(:create, watched_file)
+                end
+              else
+                yield(:grow, watched_file)
+              end
+
             end
           end
         ensure

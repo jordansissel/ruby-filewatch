@@ -6,6 +6,7 @@ module FileWatch
   FP_BYTE_SIZE = 255
   FILE_READ_SIZE = 32768
   SDB_EXPIRES_DAYS = 10
+  FIXNUM_MAX = (2**(0.size * 8 - 2) - 1)
 
   require "filewatch/helper"
 
@@ -32,6 +33,21 @@ module FileWatch
 
   FakeStat = Struct.new(:size, :mtime)
 
+  # Structs can be used as hash keys because they compare by value
+  SincedbKey1 = Struct.new(:inode, :maj, :min) do
+    def fp() nil; end
+    def offset() 0; end
+    def size() 0; end
+    def version?(i) i == 1; end
+    def to_s() to_a.join(" "); end
+  end
+
+  SincedbKey2 = Struct.new(:fp, :offset, :size) do
+    def version?(i) i == 2; end
+    def short?() size < FP_BYTE_SIZE; end
+    def to_s() to_a.join(","); end
+  end
+
   class NoSinceDBPathGiven < StandardError; end
   # how often (in seconds) we @logger.warn a failed file open, per path.
   OPEN_WARN_INTERVAL = ENV.fetch("FILEWATCH_OPEN_WARN_INTERVAL", 300).to_i
@@ -43,8 +59,7 @@ module FileWatch
   require "filewatch/discover"
   require "filewatch/sincedb_value"
   require "filewatch/since_db"
-  require "filewatch/since_db_v2"
-  require "filewatch/since_db_upgrader"
+  require "filewatch/since_db_converter"
 
   require "filewatch/watch"
   require "filewatch/tail_base"

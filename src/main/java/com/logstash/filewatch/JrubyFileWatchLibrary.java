@@ -99,6 +99,17 @@ public class JrubyFileWatchLibrary implements Library {
             super(metaClass);
         }
 
+        @JRubyMethod(name = "coerce_bignum", meta = true, required = 1)
+        public static IRubyObject coerceBignum(ThreadContext ctx, IRubyObject recv, IRubyObject i) {
+            if (i instanceof RubyBignum) {
+                return i;
+            }
+            if (i instanceof RubyFixnum) {
+                return RubyBignum.newBignum(ctx.runtime, ((RubyFixnum)i).getBigIntegerValue());
+            }
+            throw ctx.runtime.newRaiseException(ctx.runtime.getClass("StandardError"), "Can't coerce");
+        }
+
         // def initialize(data)
         @JRubyMethod(name = "initialize", required = 1)
         public IRubyObject ruby_initialize(ThreadContext ctx, RubyString data) {

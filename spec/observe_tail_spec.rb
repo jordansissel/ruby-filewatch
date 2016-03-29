@@ -1,7 +1,6 @@
-require 'stud/temporary'
 require_relative 'helpers/spec_helper'
 
-describe "FileWatch::Tail (observing) v1 sincedb" do
+describe "FileWatch::Tail (observing)" do
   before(:all) do
     @thread_abort = Thread.abort_on_exception
     Thread.abort_on_exception = true
@@ -16,12 +15,12 @@ describe "FileWatch::Tail (observing) v1 sincedb" do
   let(:dir_sdb) { Stud::Temporary.directory }
   let(:file_path) { File.join(directory, "1.log") }
   let(:sincedb_path) { File.join(dir_sdb, "sincedb.log") }
-  let(:sincedb_version) { "v1" }
-  let(:opts) { {:sincedb_path => sincedb_path, :start_new_files_at => :beginning, :stat_interval => 0.05, :sincedb_version => 1} }
+  let(:sincedb_v1_regex) { %r|\d{6,10} \d{1,2} \d{1,2} \d{1,10} \d+\.\d+\s?| }
+  let(:opts) { {:sincedb_path => sincedb_path, :start_new_files_at => :beginning, :stat_interval => 0.05} }
 
   after :each do
-    FileUtils.rm_rf(directory)
     FileUtils.rm_rf(dir_sdb)
+    FileUtils.rm_rf(directory)
   end
 
   let(:_cache) { [] }
@@ -105,7 +104,7 @@ describe "FileWatch::Tail (observing) v1 sincedb" do
         end
       subject.subscribe(observer)
       expect(observer.listeners[file_path].lines).to eq(["lineC", "lineD"])
-      expect(observer.listeners[file_path].calls).to eq([:create, :eof, :accept, :accept, :eof])
+      expect(observer.listeners[file_path].calls).to eq([:create, :accept, :accept, :eof])
     end
   end
 
@@ -130,7 +129,7 @@ describe "FileWatch::Tail (observing) v1 sincedb" do
     end
   end
 
-  describe "sincedb" do
+  describe "sincedb operations" do
     subject { FileWatch::Tail.new_observing(opts) }
 
     context "when reading a new file" do
@@ -144,8 +143,7 @@ describe "FileWatch::Tail (observing) v1 sincedb" do
             subject.quit
           end
         subject.subscribe(observer)
-        record = FileWatch.sincedb_record(sincedb_version, file_path)
-        expect(File.read(sincedb_path)).to eq("#{record}\n")
+        expect(File.read(sincedb_path)).to match(FileWatch.sincedb_v2_regex)
       end
     end
 
@@ -186,7 +184,7 @@ describe "FileWatch::Tail (observing) v1 sincedb" do
         subject.subscribe(observer)
         expect { subject.subscribe(observer) }.not_to raise_error
         expect(observer.listeners[file_path].lines).to eq(["line3", "line4"])
-        expect(observer.listeners[file_path].calls).to eq([:accept, :accept, :eof])
+        expect(observer.listeners[file_path].calls).to eq([:create, :accept, :accept, :eof])
       end
 
       it "updates on tail.quit" do
@@ -194,32 +192,62 @@ describe "FileWatch::Tail (observing) v1 sincedb" do
         subject.subscribe(observer)
         subject.subscribe(observer)
         restart_actions.value
-        expect(results.first).to eq("#{FileWatch.sincedb_key(sincedb_version, file_path, stats.first)} #{stats.first.size}\n")
-        expect(results.last).to eq("#{FileWatch.sincedb_key(sincedb_version, file_path, stats.last)} #{stats.last.size}\n")
+        expect(results.first).to match(FileWatch.sincedb_v2_regex(stats.first.size))
+        expect(results.last).to match(FileWatch.sincedb_v2_regex(stats.last.size))
+      end
+    end
+
+    context "when a v1 record exists it is converted to a v2 record" do
+      let(:file_path) { FileWatch.path_to_fixture("big1.txt") }
+      before { IO.write(sincedb_path, FileWatch.v1_sdb_rec_for_big1_file) }
+      it "converts the v1 sincedb record but does not read the file as it was read before" do
+        RSpec::Sequencing
+          .run("begin tailing") do
+            subject.tail(file_path)
+          end
+          .then_after(0.25, "quit") do
+            subject.quit
+          end
+        subject.subscribe(observer)
+        expect(observer.listeners[file_path].lines.count).to eq(0)
+        expect(File.read(sincedb_path)).to match(FileWatch.sincedb_v2_regex)
       end
     end
   end
 
   context "ingesting files bigger than 32k" do
-    let(:lineA) { "a" * 12000 }
-    let(:lineB) { "b" * 25000 }
-    let(:lineC) { "c" * 8000 }
-    subject { FileWatch::Tail.new_observing(opts) }
-
-    it "should read all the lines entirely" do
+    let(:tailer) { FileWatch::Tail.new_observing(opts) }
+    let(:lines) { FileWatch.lines_for_45K_file }
+    let(:actions) do
       RSpec::Sequencing
-        .run("write large amount of data to file") do
-          IO.write(file_path, "#{lineA}\n#{lineB}\n#{lineC}\n")
+        .run_after(0.55, "quit") do
+          tailer.quit
         end
-        .then_after(0.1, "begin tailing") do
-          subject.tail(file_path)
-        end
-        .then_after(0.55, "quit") do
-          subject.quit
-        end
-      subject.subscribe(observer)
-      expect(observer.listeners[file_path].calls).to eq([:create, :accept, :accept, :accept, :eof])
-      expect(observer.listeners[file_path].lines).to eq([lineA, lineB, lineC])
+    end
+    context "with an empty sincedb file" do
+      before do
+        File.open(file_path, "wb") { |file| file.write("#{lines[0]}\n#{lines[1]}\n#{lines[2]}\n") }
+        tailer.tail(file_path)
+      end
+      it "reads all the lines entirely" do
+        actions.activate
+        tailer.subscribe(observer)
+        expect(observer.listeners[file_path].calls).to eq([:create, :accept, :accept, :accept, :eof])
+        expect(observer.listeners[file_path].lines).to eq(FileWatch.lines_for_45K_file)
+      end
+    end
+    context "with a sincedb record" do
+      before do
+        File.open(sincedb_path, "wb") { |file| file.write(FileWatch.sdb_rec_for_45k_file) }
+        File.open(file_path, "wb") { |file| file.write("#{lines[0]}\n#{lines[1]}\n#{lines[2]}\n") }
+        tailer.tail(file_path)
+      end
+      it "does not read any lines" do
+        actions.activate
+        tailer.subscribe(observer)
+        expect(observer.listeners[file_path].calls).to eq([])
+        expect(observer.listeners[file_path].lines).to eq([])
+      end
     end
   end
 
@@ -294,38 +322,125 @@ describe "FileWatch::Tail (observing) v1 sincedb" do
         expect(result_cache[:before_calls]).to         eq([:create, :accept, :accept, :eof])
         expect(observer.listeners[file_path].calls).to eq([:create, :accept, :accept, :eof, :eof, :delete])
         expect(observer.listeners[new_file_path].lines).to eq([])
-        expect(observer.listeners[new_file_path].calls).to eq([:create, :eof])
+        expect(observer.listeners[new_file_path].calls).to eq([])
       end
     end
 
     context "when a file is copied outside the the watch pattern and the original truncated" do
       let(:new_file_path) { file_path + ".bak" }
-
-      it "does not re-read the original file" do
+      let(:lines) { ["line1\nline2\nline3\nline4\n", "lineA\nlineB\n"] }
+      let(:actions) do
         RSpec::Sequencing
           .run("create file and tail") do
-            File.open(file_path, "wb") { |file| file.write("line1\nline2\nline3\nline4\n") }
+            File.open(file_path, "wb") { |file| file.write(lines[0]) }
             subject.tail(glob_path)
           end
           .then_after(0.55, "copy file then truncate and add content after allowing time to read the original") do
             FileUtils.cp(file_path, new_file_path)
             # open for "w" will truncate and add new lines
-            File.open(file_path, "w") {|f| f.write("lineA\nlineB\n"); f.fsync}
+            File.open(file_path, "w") {|f| f.write(lines[1]); f.fsync}
           end
           .then_after(0.55, "quit") do
             subject.quit
           end
-        subject.subscribe(observer)
-        # sometimes the truncated file is read before the content is written we get an extra eof
-        # this is normal and should not cause a test failure
-        calls = observer.listeners[file_path].calls
-        if calls.slice(8, 5) == [:create, :eof, :accept, :accept, :eof]
-          expect(calls.delete_at(9)).to eq(:eof)
+      end
+
+      context "when the additional data is less than before" do
+        before do
+          actions.activate
         end
-        expect(calls).to eq(
-          [:create, :accept, :accept, :accept, :accept, :eof, :eof, :delete, :create, :accept, :accept, :eof]
-        )
-        expect(observer.listeners[file_path].lines).to eq(["line1", "line2", "line3", "line4", "lineA", "lineB"])
+        it "resets the read point and reads appended data" do
+          subject.subscribe(observer)
+          calls = observer.listeners[file_path].calls
+          expect(calls).to eq(
+            [:create, :accept, :accept, :accept, :accept, :eof, :accept, :accept, :eof]
+          )
+          expect(observer.listeners[file_path].lines).to eq(["line1", "line2", "line3", "line4", "lineA", "lineB"])
+        end
+      end
+
+      context "when the additional data is more than before" do
+        before do
+          lines.rotate!
+          actions.activate
+        end
+        it "resets the read point and reads appended data" do
+          subject.subscribe(observer)
+          calls = observer.listeners[file_path].calls
+          expect(calls).to eq(
+            [:create, :accept, :accept, :eof, :accept, :accept, :accept, :accept, :eof]
+          )
+          expect(observer.listeners[file_path].lines).to eq(["lineA", "lineB", "line1", "line2", "line3", "line4" ])
+        end
+      end
+    end
+
+    context "when reading big files in alternation" do
+      subject { FileWatch::Tail.new_observing(opts.update(:read_iterations => 1)) }
+      let(:glob) { FileWatch.path_to_fixture("big*.txt") }
+      let(:big1) { FileWatch.path_to_fixture("big1.txt") }
+      let(:big2) { FileWatch.path_to_fixture("big2.txt") }
+
+      it "both files are read showing alternation" do
+        subject.tail(glob)
+        RSpec::Sequencing
+          .run_after(1.5, "quit") { subject.quit }
+        subject.subscribe(observer)
+        expect(observer.listeners[big1].accepts.slice(420, 10)).to eq([421, 422, 423, 424, 849, 850, 851, 852, 853, 854])
+        expect(observer.listeners[big2].accepts.take(10)).to eq([425, 426, 427, 428, 429, 430, 431, 432, 433, 434])
+        expect(observer.listeners[big1].lines.last).to match(/process PID changed from 39998 to 39999/)
+        expect(observer.listeners[big2].lines.last).to match(/process PID changed from 59998 to 59999/)
+      end
+    end
+
+    context "when two files start with the same content and then diverge" do
+      let(:header) { "title, artist, album, date, genre, track_no"}
+
+      let(:playlist1) { File.join(directory, "pl1.log") }
+      let(:playlist2) { File.join(directory, "pl2.log") }
+      let(:actions_pre) do
+        RSpec::Sequencing
+          .run("create both files with the same header then tail") do
+            File.open(playlist1, "wb") { |file| file.puts(header) }
+            File.open(playlist2, "wb") { |file| file.puts(header) }
+            subject.tail(File.join(directory, "*"))
+          end
+      end
+      let(:actions_post) do
+        RSpec::Sequencing
+          .run_after(0.25, "add the songs") do
+            File.open(playlist1, "ab") { |file| file.write(songs1) }
+            File.open(playlist2, "ab") { |file| file.write(songs2) }
+          end
+          .then_after(0.55, "quit") do
+            subject.quit
+          end
+      end
+      before do
+        actions_pre.activate
+        actions_pre.value
+        actions_post.activate
+      end
+
+      context "using short fingerprints" do
+        let(:songs1) { FileWatch.songs1_short }
+        let(:songs2) { FileWatch.songs2_short }
+
+        it "both files are read but the second file excludes the header" do
+          subject.subscribe(observer)
+          expect(observer.listeners[playlist1].lines).to eq(songs1.split("\n").unshift(header))
+          expect(observer.listeners[playlist2].lines).to eq(songs2.split("\n"))
+        end
+      end
+
+      context "using long fingerprints" do
+        let(:songs1) { FileWatch.songs1 }
+        let(:songs2) { FileWatch.songs2 }
+        it "both files are read but the second file excludes the header" do
+          subject.subscribe(observer)
+          expect(observer.listeners[playlist1].lines).to eq(songs1.split("\n").unshift(header))
+          expect(observer.listeners[playlist2].lines).to eq(songs2.split("\n"))
+        end
       end
     end
 
@@ -368,6 +483,8 @@ describe "FileWatch::Tail (observing) v1 sincedb" do
       end
     end
   end
+
+
 
   if RbConfig::CONFIG['host_os'] !~ /mswin|mingw|cygwin/
     describe "open or closed file handling" do

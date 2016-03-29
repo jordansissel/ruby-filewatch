@@ -2,8 +2,7 @@ require_relative 'watched_file'
 
 module FileWatch
   class Discover
-    attr_reader :files, :wf_vars
-    attr_accessor :logger
+    attr_reader  :logger, :files, :wf_vars
 
     def initialize(opts, loggr)
       @logger = loggr
@@ -16,11 +15,20 @@ module FileWatch
       exclude(opts[:exclude])
     end
 
+    def logger=(loggr)
+      @logger = loggr
+      @converter.logger = loggr
+    end
+
+    def add_converter(converter)
+      @converter = converter
+    end
+
     def add_path(path)
       return if @watching.member?(path)
       @watching << path
       discover_file(path) do |fpath, stat|
-        wf = WatchedFile.new_initial(*wf_args(fpath, stat)).init_vars(*wf_vars)
+        WatchedFile.new_initial(*wf_args(fpath, stat)).init_vars(*wf_vars)
       end
     end
 
@@ -72,7 +80,7 @@ module FileWatch
     end
 
     def wf_args(path, stat)
-      [path, Watch.inode(path, stat), stat]
+      [path, stat]
     end
 
     def file_lookup(path)
@@ -113,6 +121,7 @@ module FileWatch
             # have a watched_file size of zero
             watched_file.ignore
           end
+          @converter.convert_watched_file(watched_file) unless watched_file.unstorable?
           @files[file] = watched_file
         end
       end

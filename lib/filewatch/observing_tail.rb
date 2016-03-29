@@ -11,10 +11,12 @@ module FileWatch
         path = watched_file.path
         file_is_open = watched_file.file_open?
         listener = observer.listener_for(path)
+        @logger.debug? && @logger.debug("subscribe block - #{event} for #{path}")
         case event
         when :unignore
-          listener.created
-          _add_to_sincedb(watched_file, event) unless @sincedb.member?(watched_file)
+          if !@sincedb.member?(watched_file.storage_key) && !file_is_open && _open_file(watched_file, event)
+            listener.created
+          end
         when :create, :create_initial
           if file_is_open
             @logger.debug? && @logger.debug("#{event} for #{path}: file already open")
@@ -24,11 +26,12 @@ module FileWatch
             listener.created
             observe_read_file(watched_file, listener)
           end
-        when :modify
+        when :grow, :shrink
           if file_is_open
             observe_read_file(watched_file, listener)
           else
-            @logger.debug? && @logger.debug(":modify for #{path}, file is not open, opening now")
+            @logger.debug? && @logger.debug(":#{event} for #{path}, from empty file is not open, opening now")
+            # it was grown from empty
             if _open_file(watched_file, event)
               observe_read_file(watched_file, listener)
             end
@@ -41,6 +44,7 @@ module FileWatch
           else
             @logger.debug? && @logger.debug(":delete for #{path}, file already closed")
           end
+          @sincedb.deallocate(watched_file)
           listener.deleted
         when :timeout
           @logger.debug? && @logger.debug(":timeout for #{path}, closing file")
@@ -58,17 +62,14 @@ module FileWatch
 
     def observe_read_file(watched_file, listener)
       changed = false
-      loop do
+      @opts[:read_iterations].times do
         begin
           data = watched_file.file_read(FILE_READ_SIZE)
           changed = true
           watched_file.buffer_extract(data).each do |line|
             listener.accept(line)
-            @sincedb.increment(watched_file, line.bytesize + @delimiter_byte_size)
+            @sincedb.increment(watched_file.storage_key, line.bytesize + @delimiter_byte_size)
           end
-          # watched_file bytes_read tracks the sincedb entry
-          # see TODO in watch.rb
-          watched_file.update_bytes_read(@sincedb.last_read(watched_file))
         rescue EOFError
           listener.eof
           break
@@ -76,7 +77,7 @@ module FileWatch
           listener.error
           break
         rescue => e
-          @logger.debug? && @logger.debug("observe_read_file: general error reading #{watched_file.path} - error: #{e.inspect}")
+          @logger.error("observe_read_file: general error reading #{watched_file.path} - error: #{e.inspect}")
           listener.error
           break
         end

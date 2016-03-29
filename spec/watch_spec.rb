@@ -1,4 +1,3 @@
-require 'stud/temporary'
 require_relative 'helpers/spec_helper'
 
 describe FileWatch::Watch4Test do
@@ -20,6 +19,7 @@ describe FileWatch::Watch4Test do
   let(:discover_interval) { 4 }
   let(:opts) { {} }
   let(:discoverer) { FileWatch::Discover.new(opts, loggr) }
+  let(:sincedb) { FileWatch::SinceDb.new(opts, loggr) }
 
   let(:subscribe_proc) do
     lambda do
@@ -27,12 +27,17 @@ describe FileWatch::Watch4Test do
       subject.subscribe(stat_interval, discover_interval) do |event, wf|
         results.push([event, wf.path])
         # fake that we actually opened and read the file
-        wf.update_bytes_read(wf.filestat.size) if event == :modify
+        wf.update_bytes_read(wf.filestat.size) if event == :grow
       end
     end
   end
 
-  subject { FileWatch::Watch4Test.new(opts).add_discoverer(discoverer) }
+  subject do
+    watch = FileWatch::Watch4Test.new(opts)
+    watch.logger = loggr
+    discoverer.add_converter(FileWatch::SinceDbConverter.new(sincedb, loggr))
+    watch.add_discoverer(discoverer)
+  end
 
   after do
     FileUtils.rm_rf(directory)
@@ -66,7 +71,7 @@ describe FileWatch::Watch4Test do
         ENV["FILEWATCH_MAX_FILES_WARN_INTERVAL"] = "0"
         expect(subject.max_active).to eq(max)
         subscribe_proc.call
-        expect(results).to eq([[:create_initial, file_path], [:modify, file_path]])
+        expect(results).to eq([[:create_initial, file_path], [:grow, file_path]])
         expect(loggr.trace_for(:warn).flatten.last).to match(
           %r{Reached open files limit: 1, set by the 'max_open_files' option or default, try setting close_older})
       end
@@ -78,7 +83,7 @@ describe FileWatch::Watch4Test do
         subject.max_open_files = max
         expect(subject.max_active).to eq(max)
         subscribe_proc.call
-        expect(results).to eq([[:create_initial, file_path], [:modify, file_path]])
+        expect(results).to eq([[:create_initial, file_path], [:grow, file_path]])
       end
     end
 
@@ -91,8 +96,8 @@ describe FileWatch::Watch4Test do
         subject.max_open_files = max
         subscribe_proc.call
         expect(results).to eq([
-            [:create_initial, file_path], [:modify, file_path], [:timeout, file_path],
-            [:create_initial, file_path2], [:modify, file_path2], [:timeout, file_path2]
+            [:create_initial, file_path], [:grow, file_path], [:timeout, file_path],
+            [:create_initial, file_path2], [:grow, file_path2], [:timeout, file_path2]
           ])
         expect(loggr.trace_for(:warn).flatten.last).to match(
           %r{Reached open files limit: 1, set by the 'max_open_files' option or default, try setting close_older. There are})
@@ -112,10 +117,10 @@ describe FileWatch::Watch4Test do
         end
     end
 
-    it "yields create_initial and one modify file events" do
+    it "yields create_initial and one grow file events" do
       actions.activate
       subscribe_proc.call
-      expect(results).to eq([[:create_initial, file_path], [:modify, file_path]])
+      expect(results).to eq([[:create_initial, file_path], [:grow, file_path]])
     end
   end
 
@@ -133,17 +138,16 @@ describe FileWatch::Watch4Test do
         end
     end
 
-    it "yields create and one modify file events" do
+    it "yields create and one grow file events" do
       subscribe_proc.call
-      expect(results).to eq([[:create, file_path], [:modify, file_path]])
+      expect(results).to eq([[:create, file_path], [:grow, file_path]])
     end
   end
 
   describe "file is not longer readable" do
     let(:quit_after) { 0.1 }
-    let(:inode) { double("inode", :first => 23453, :join => "23453 0 0") }
-    let(:stat)  { double("stat", :size => 100, :ctime => Time.now, :mtime => Time.now) }
-    let(:watched_file) { FileWatch::WatchedFile.new_ongoing(file_path, inode, stat) }
+    let(:stat)  { double("stat", :size => 100, :ctime => Time.now, :mtime => Time.now, :ino => 234567, :dev_major => 3, :dev_minor => 2) }
+    let(:watched_file) { FileWatch::WatchedFile.new_ongoing(file_path, stat) }
 
     before do
       discoverer.files.store(file_path, watched_file)
@@ -211,9 +215,9 @@ describe FileWatch::Watch4Test do
         end
     end
 
-    it "yields create_initial, one modify and a delete file events" do
+    it "yields create_initial, one grow and a delete file events" do
       subscribe_proc.call
-      expect(results).to eq([[:create_initial, file_path], [:modify, file_path], [:delete, file_path]])
+      expect(results).to eq([[:create_initial, file_path], [:grow, file_path], [:delete, file_path]])
     end
   end
 
@@ -239,11 +243,11 @@ describe FileWatch::Watch4Test do
         end
     end
 
-    it "yields create_initial, a modify, a delete, a create and a modify file events" do
+    it "yields create_initial, a grow, a delete, a create and a grow file events" do
       subscribe_proc.call
       expect(results).to eq([
-          [:create_initial, file_path], [:modify, file_path], [:delete, file_path],
-          [:create, new_file_path], [:modify, new_file_path]
+          [:create_initial, file_path], [:grow, file_path], [:delete, file_path],
+          [:create, new_file_path], [:grow, new_file_path]
         ])
     end
   end
@@ -265,9 +269,9 @@ describe FileWatch::Watch4Test do
         end
     end
 
-    it "yields create_initial and two modified file events" do
+    it "yields create_initial, a grow, a create (after the fingerprint changed) and a grow file events" do
       subscribe_proc.call
-      expect(results).to eq([[:create_initial, file_path], [:modify, file_path], [:modify, file_path]])
+      expect(results).to eq([[:create_initial, file_path], [:grow, file_path], [:create, file_path], [:grow, file_path]])
     end
   end
 
@@ -286,9 +290,9 @@ describe FileWatch::Watch4Test do
         end
     end
 
-    it "yields create_initial, modify and timeout file events" do
+    it "yields create_initial, grow and timeout file events" do
       subscribe_proc.call
-      expect(results).to eq([[:create_initial, file_path], [:modify, file_path], [:timeout, file_path]])
+      expect(results).to eq([[:create_initial, file_path], [:grow, file_path], [:timeout, file_path]])
     end
   end
 
@@ -311,9 +315,9 @@ describe FileWatch::Watch4Test do
         end
     end
 
-    it "yields create_initial, modify, timeout then modify, timeout file events" do
+    it "yields create_initial, grow, timeout then grow, timeout file events" do
       subscribe_proc.call
-      expect(results).to eq([[:create_initial, file_path], [:modify, file_path], [:timeout, file_path], [:modify, file_path], [:timeout, file_path]])
+      expect(results).to eq([[:create_initial, file_path], [:grow, file_path], [:timeout, file_path], [:grow, file_path], [:timeout, file_path]])
     end
   end
 
@@ -354,9 +358,9 @@ describe FileWatch::Watch4Test do
         end
     end
 
-    it "yields create_initial, modify, timeout file events" do
+    it "yields create_initial, grow, timeout file events" do
       subscribe_proc.call
-      expect(results).to eq([[:create_initial, file_path], [:modify, file_path], [:timeout, file_path]])
+      expect(results).to eq([[:create_initial, file_path], [:grow, file_path], [:timeout, file_path]])
     end
   end
 
@@ -399,10 +403,10 @@ describe FileWatch::Watch4Test do
         end
     end
 
-    it "yields unignore, modify then timeout file events" do
+    it "yields unignore, grow then timeout file events" do
       subscribe_proc.call
       expect(results).to eq([
-          [:unignore, file_path], [:modify, file_path], [:timeout, file_path]
+          [:unignore, file_path], [:grow, file_path], [:timeout, file_path]
         ])
     end
   end
