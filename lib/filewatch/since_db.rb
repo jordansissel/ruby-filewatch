@@ -107,7 +107,6 @@ module FileWatch
           value.upd_expiry
         else
           @logger.debug? && @logger.debug("SinceDb find: match but allocated to another - #{value}")
-          STDERR.puts ""
           # we found value having the same key as wf
           # wf is a renamed file recently discovered
           # or a different file with the same content
