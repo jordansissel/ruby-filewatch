@@ -1,4 +1,4 @@
-require 'filewatch/boot_setup' unless defined?(FileWatch)
+require 'filewatch/boot_setup'
 
 require "filewatch/yielding_tail"
 require "filewatch/observing_tail"
