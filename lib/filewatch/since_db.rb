@@ -123,7 +123,7 @@ module FileWatch
         next if k >= key.size
         @logger.debug? && @logger.debug("SinceDb find: key: #{key}, short_keys - #{k}:#{vk}")
         # vk is a list of keys at size k
-        old_key, new_key = wf.first_fingerprint_match_any?(vk.sort.reverse)
+        old_key, new_key = wf.first_fingerprint_match_any?(vk.sort)
         # old_key is the one found via short_keys
         # new_key is the altered wf.storage key
         # it would have a new shorter fingerprint

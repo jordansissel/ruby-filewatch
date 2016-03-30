@@ -43,6 +43,14 @@ module FileWatch
   end
 
   SincedbKey2 = Struct.new(:fp, :offset, :size) do
+    include Comparable
+    def <=>(other)
+      v = other.size <=> size
+      return v if v != 0
+      v = other.offset <=> offset
+      return v if v != 0
+      other.fp <=> fp
+    end
     def version?(i) i == 2; end
     def short?() size < FP_BYTE_SIZE; end
     def to_s() to_a.join(","); end
