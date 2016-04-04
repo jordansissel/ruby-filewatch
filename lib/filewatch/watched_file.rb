@@ -193,6 +193,11 @@ module FileWatch
       @buffer.extract(data)
     end
 
+    def increment_bytes_read(delta)
+      return if delta.nil?
+      @bytes_read += delta
+    end
+
     def update_bytes_read(total_bytes_read)
       return if total_bytes_read.nil?
       @bytes_read = total_bytes_read

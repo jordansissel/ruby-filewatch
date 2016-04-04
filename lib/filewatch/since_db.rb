@@ -75,15 +75,15 @@ module FileWatch
 
     def deallocate(wf)
       return if !member?(wf.storage_key)
-      get(wf.storage_key).clear_watched_file
+      get(wf.storage_key).deallocate_watched_file
     end
 
     def find(wf, event)
-      @logger.debug? && @logger.debug("SinceDb find: event - #{event}")
+      @logger.debug? && @logger.debug("SinceDb find: event: #{event}, path: #{wf.path}")
       key = wf.storage_key
       value = get(key)
       if value
-        @logger.debug? && @logger.debug("SinceDb find: found on first fp - #{key}:#{value}")
+        @logger.debug? && @logger.debug("SinceDb find: found on first fp - #{key} => #{value}")
         # does the on disk record have a second fp?
         # then check it
         fp2 = value.second_fingerprint
@@ -95,15 +95,15 @@ module FileWatch
           end
         end
       end
-
       if value
         if value.watched_file.nil?
           # unallocated as read from disk
           @logger.debug? && @logger.debug("SinceDb find: allocating - #{value}")
+          wf.update_bytes_read(value.position)
           value.upd_watched_file(wf)
         elsif value.watched_file == wf
           @logger.debug? && @logger.debug("SinceDb find: exact match - #{value}")
-          # or allocated to this watched_file via the SinceDbConnverter
+          # or allocated to this watched_file via the SinceDbConnverter v1 conversion
           value.upd_expiry
         else
           @logger.debug? && @logger.debug("SinceDb find: match but allocated to another - #{value}")
@@ -133,13 +133,15 @@ module FileWatch
         value = delete(old_key)
         if value.watched_file.nil?
           @logger.debug? && @logger.debug("SinceDb find: short keys unallocated wf")
+          wf.update_bytes_read(value.position)
           value.upd_watched_file(wf)
         elsif value.watched_file != wf
           @logger.debug? && @logger.debug("SinceDb find: short keys allocated wf unequal")
           # put back
           set(old_key, value)
           # new value
-          value = SincedbValue.new(value.position)
+          value = SincedbValue.new(0) # allow the new allocation to start from scratch
+          value.upd_watched_file(wf)
         else
           @logger.debug? && @logger.debug("SinceDb find: short keys allocated wf equal")
           # its the same watched file with a new key
@@ -149,6 +151,7 @@ module FileWatch
         @logger.debug? && @logger.debug("SinceDb find: found! - #{value}")
         return value
       end
+      @logger.debug? && @logger.debug("SinceDb find: NOT FOUND!, path: #{wf.path}")
       nil
     end
 

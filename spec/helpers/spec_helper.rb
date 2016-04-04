@@ -43,9 +43,11 @@ module FileWatch
   end
 
   def self.songs1_short
+    # tracks 1 and 2
     songs1.slice(0, 138)
   end
   def self.songs2_short
+    # tracks 1 and 2
     songs2.slice(0, 179)
   end
 
@@ -76,7 +78,11 @@ SONGS
   end
 
   def self.sdb_rec_for_45k_file
-    "8864371933797704358,0,255 45003 1460010783.808 1946650054937152164,37002,255\n"
+    "8864371933797704358,0,255 45003 #{Time.now.to_f + 3600.0} 1946650054937152164,37002,255\n"
+  end
+
+  def self.short_sdb_rec_for_songs1
+    "4319258025262393860,0,75 75 #{Time.now.to_f + 3600.0}\n"
   end
 
   def self.lines_for_45K_file

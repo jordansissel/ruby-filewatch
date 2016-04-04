@@ -120,30 +120,27 @@ module FileWatch
         # its contents are the same
         # as another file we have watched before.
         last_read_size = sdb_value.position
-        @logger.debug? && @logger.debug("#{path}: #{event}, in sincedb, last value #{last_read_size}, cur size #{stat.size}")
+        @logger.debug? && @logger.debug("_add_to_sincedb: #{path}: #{event}, in sincedb, last value #{last_read_size}, cur size #{stat.size}")
         case event
         when :create, :create_initial
           # a file with the same fingerprint as another has now been allocated to
           # this sdb_value and it is being processed now.
           # but we don't want to reread the data
-          @logger.debug? && @logger.debug("_add_to_sincedb: #{path}: create, in sincedb, seeking to #{last_read_size}")
+          @logger.debug? && @logger.debug("_add_to_sincedb: #{path}: #{event}, in sincedb, seeking to #{last_read_size}")
           watched_file.file_seek(last_read_size)
-          # this sets the sdb_value and the watched_file bytes_read in sync and updates the sdb expiry
-          @sincedb.store_last_read(sdb_key, last_read_size)
+          sdb_value.upd_position(last_read_size) # ?? hmmmm: should be the same
         when :grow
           # it has old content that was read and more now since the converter matched
           @logger.debug? && @logger.debug("_add_to_sincedb: #{path}: grow, in sincedb, seeking to #{last_read_size}")
           watched_file.file_seek(last_read_size)
-          # this sets the sdb_value and the watched_file bytes_read in sync and updates the sdb expiry
-          @sincedb.store_last_read(sdb_key, last_read_size)
+          sdb_value.upd_position(last_read_size)
         when :shrink
           # ?? we have a fingerprint match but less content - some must have been deleted
           # but not all because then there would be no content to fingerprint
           # so go to the eof and wait for new content.
           @logger.debug? && @logger.debug("_add_to_sincedb: #{path}: shrink, in sincedb, was not fully truncated, seeking to #{stat.size}")
           watched_file.file_seek(stat.size)
-          # this sets the sdb_value and the watched_file bytes_read in sync and updates the sdb expiry
-          @sincedb.store_last_read(sdb_key, stat.size)
+          sdb_value.upd_position(stat.size)
         end
         return true
       elsif sdb_value && sdb_value.watched_file != watched_file
@@ -154,36 +151,39 @@ module FileWatch
         # to process this file we need a different key
         # we will not open the file but we do deactivate it
         # maybe one of the fingerprints will change.
+        @logger.debug? && @logger.debug("_add_to_sincedb: #{path}: found but differently allocated - setting wf back to watch for later retry")
         watched_file.watch
-        @logger.debug? && @logger.debug("_add_to_sincedb: #{path}: found but differently allocated")
         return false
       end
+
+      # if we get here, then we have a watched_file that has never been seen before.
+
       sdb_value = SincedbValue.new(0)
       sdb_value.upd_watched_file(watched_file) # <-- allocate this watched_file to the sincedb value
       yield if block_given? # should open the file
 
       case event
       when :create_initial
-        seek_to = 0
         if @opts[:start_new_files_at] == :beginning
           @logger.debug? && @logger.debug("_add_to_sincedb: #{path}: initial create, no sincedb on disk, seeking to beginning of file")
+          watched_file.file_seek(0)
         else
           # seek to end
           @logger.debug? && @logger.debug("_add_to_sincedb: #{path}: initial create, no sincedb on disk, seeking to end #{stat.size}")
           seek_to = stat.size
+          watched_file.file_seek(seek_to)
+          sdb_value.upd_position(seek_to)
         end
-        watched_file.file_seek(seek_to)
-        sdb_value.upd_position(seek_to)
         @sincedb.set(sdb_key, sdb_value)
       when :create, :shrink, :grow
         @logger.debug? && @logger.debug("_add_to_sincedb: #{path}: #{event}, new content, no sincedb on disk, seeking to beginning of file")
-        sdb_value.upd_position(0)
         watched_file.file_seek(0)
+        sdb_value.upd_position(0)
         @sincedb.set(sdb_key, sdb_value)
       when :unignore
         # when this watched_file as ignored it had it bytes_read set to eof
-        sdb_value.upd_position(watched_file.bytes_read)
         watched_file.file_seek(watched_file.bytes_read)
+        sdb_value.upd_position(watched_file.bytes_read)
         @sincedb.set(sdb_key, sdb_value)
       else
         @logger.debug? && @logger.debug("_add_to_sincedb: #{path}: staying at position 0, no sincedb")

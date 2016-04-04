@@ -393,6 +393,28 @@ describe "FileWatch::Tail (observing)" do
       end
     end
 
+    context "for spec_helper 'songs1_short', when track1 was read and is in the sincedb" do
+      # designed to test find using short keys when a value is found (from disk) and
+      # the wf is not allocated - it begins from the read bytes offset
+      let(:songs) { File.join(directory, "pl1.log") }
+      before do
+        File.open(sincedb_path, "wb") { |file| file.write(FileWatch.short_sdb_rec_for_songs1) }
+      end
+
+      it "reads track 2 only" do
+        RSpec::Sequencing
+          .run("create the song file") do
+            File.open(songs, "wb") { |file| file.write(FileWatch.songs1_short) }
+            subject.tail(glob_path)
+          end
+          .then_after(0.55, "quit") do
+            subject.quit
+          end
+        subject.subscribe(observer)
+        expect(observer.listeners[songs].lines).to eq([FileWatch.songs1_short.split("\n")[1]])
+      end
+    end
+
     context "when two files start with the same content and then diverge" do
       let(:header) { "title, artist, album, date, genre, track_no"}
 
@@ -426,20 +448,20 @@ describe "FileWatch::Tail (observing)" do
         let(:songs1) { FileWatch.songs1_short }
         let(:songs2) { FileWatch.songs2_short }
 
-        it "both files are read but the second file excludes the header" do
+        it "both files are read" do
           subject.subscribe(observer)
           expect(observer.listeners[playlist1].lines).to eq(songs1.split("\n").unshift(header))
-          expect(observer.listeners[playlist2].lines).to eq(songs2.split("\n"))
+          expect(observer.listeners[playlist2].lines).to eq(songs2.split("\n").unshift(header))
         end
       end
 
       context "using long fingerprints" do
         let(:songs1) { FileWatch.songs1 }
         let(:songs2) { FileWatch.songs2 }
-        it "both files are read but the second file excludes the header" do
+        it "both files are read" do
           subject.subscribe(observer)
           expect(observer.listeners[playlist1].lines).to eq(songs1.split("\n").unshift(header))
-          expect(observer.listeners[playlist2].lines).to eq(songs2.split("\n"))
+          expect(observer.listeners[playlist2].lines).to eq(songs2.split("\n").unshift(header))
         end
       end
     end

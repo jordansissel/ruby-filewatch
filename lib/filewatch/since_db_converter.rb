@@ -32,8 +32,8 @@ module FileWatch
       if present1 && !present2
         sdb_val = @sincedb.delete(key1)
         @logger.debug? && @logger.debug("SinceDbConverter convert: key1 - value: #{sdb_val}")
-        sdb_val.upd_watched_file(wf)
         wf.update_bytes_read(sdb_val.position)
+        sdb_val.upd_watched_file(wf)
         @sincedb.set(key2, sdb_val)
         wf.ignore if wf.read_all?
         @converted_records += 1
@@ -41,8 +41,7 @@ module FileWatch
         sdb_val = @sincedb.find(wf, :convert)
         if sdb_val
           @logger.debug? && @logger.debug("SinceDbConverter convert: key2 - value: #{sdb_val}")
-          # find will allocate wf to sdb_val
-          wf.update_bytes_read(sdb_val.position)
+          # wf bytes_read was done by the find method
           if wf.read_all?
             @logger.debug? && @logger.debug("SinceDbConverter convert: wf has all bytes read, setting to ignore")
             wf.ignore
