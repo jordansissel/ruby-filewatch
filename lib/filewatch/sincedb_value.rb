@@ -64,9 +64,13 @@ module FileWatch
     end
 
     def deallocate_watched_file
-      # cache the position this value was last at
-      @position = @watched_file.bytes_read if !@watched_file.nil?
+      # cache the position and second_fingerprint this value last had
+      return if @watched_file.nil?
+      wf = @watched_file
       @watched_file = nil
+      @position = wf.bytes_read
+      return if wf.last_fingerprint.nil?
+      @second_fp = @watched_file.last_fingerprint.to_a
     end
 
     private
