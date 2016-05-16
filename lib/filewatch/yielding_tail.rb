@@ -1,3 +1,4 @@
+# encoding: utf-8
 require 'filewatch/boot_setup' unless defined?(FileWatch)
 
 module FileWatch
@@ -70,7 +71,7 @@ module FileWatch
         end
       end
 
-      @sincedb.write_periodically if changed
+      @sincedb.request_disk_flush if changed
     end
   end # module YieldingTail
 end # module FileWatch

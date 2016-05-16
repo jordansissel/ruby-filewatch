@@ -1,17 +1,18 @@
+# encoding: utf-8
 require_relative 'watched_file'
 
 module FileWatch
   class Discover
-    attr_reader  :logger, :files, :wf_vars
+    attr_reader  :logger, :files, :watched_file_config
 
     def initialize(opts, loggr)
       @logger = loggr
       @watching = []
       @exclude = []
       @files = {}
-      set_ignore_older(opts[:ignore_older])
-      set_close_older(opts[:close_older])
-      @wf_vars = [opts[:delimiter], @ignore_older, @close_older]
+      @watched_file_config = WatchedFileConfig.new(
+        *opts.values_at(:delimiter, :close_older, :ignore_older)
+      )
       exclude(opts[:exclude])
     end
 
@@ -22,26 +23,28 @@ module FileWatch
 
     def add_converter(converter)
       @converter = converter
+      self
     end
 
     def add_path(path)
       return if @watching.member?(path)
       @watching << path
       discover_file(path) do |fpath, stat|
-        WatchedFile.new_initial(*wf_args(fpath, stat)).init_vars(*wf_vars)
+        WatchedFile.new_initial(fpath, stat).add_config(@watched_file_config)
       end
+      self
     end
 
     def discover
       @watching.each do |path|
         discover_file(path) do |fpath, stat|
-          WatchedFile.new_ongoing(*wf_args(fpath, stat)).init_vars(*wf_vars)
+          WatchedFile.new_ongoing(fpath, stat).add_config(@watched_file_config)
         end
       end
     end
 
     def delete(paths)
-      paths.each {|f| @files.delete(f)}
+      Array(paths).each {|f| @files.delete(f)}
     end
 
     def close_all
@@ -58,25 +61,9 @@ module FileWatch
 
     private
 
-    def set_ignore_older(value)
-      #nil is allowed but 0 and negatives are made nil
-      if !value.nil?
-        val = value.to_f
-        val = val <= 0 ? nil : val
-      end
-      @ignore_older = val
-    end
 
-    def set_close_older(value)
-      if !value.nil?
-        val = value.to_f
-        val = val <= 0 ? nil : val
-      end
-      @close_older = val
-    end
-
-    def exclude(path)
-      path.to_a.each { |p| @exclude << p }
+    def exclude(paths)
+      paths.to_a.each { |p| @exclude << p }
     end
 
     def wf_args(path, stat)
@@ -93,23 +80,13 @@ module FileWatch
         new_discovery = false
         watched_file = file_lookup(file)
         if watched_file.nil?
-          @logger.debug? && @logger.debug("_discover_file: #{path}: new: #{file} (exclude is #{@exclude.inspect})")
+          @logger.debug? && @logger.debug("discover_file: #{path}: new: #{file} (exclude is #{@exclude.inspect})")
           # let the caller build the object in its context
           new_discovery = true
           watched_file = yield(file, File::Stat.new(file))
         end
-
-        skip = false
-        @exclude.each do |pattern|
-          if File.fnmatch?(pattern, File.basename(file))
-            @logger.debug? && @logger.debug("_discover_file: #{file}: skipping because it " +
-                          "matches exclude #{pattern}") if new_discovery
-            skip = true
-            watched_file.unwatch
-            break
-          end
-        end
-        next if skip
+        # if it already unwatched or its excluded then we can skip
+        next if watched_file.unwatched? || exclude?(watched_file, new_discovery)
 
         if new_discovery
           if watched_file.file_ignorable?
@@ -127,9 +104,26 @@ module FileWatch
       end
     end
 
+    def exclude?(watched_file, new_discovery)
+      skip = false
+      file_basename = File.basename(watched_file.path)
+      @exclude.each do |pattern|
+        if File.fnmatch?(pattern, file_basename)
+          if new_discovery && @logger.debug?
+            @logger.debug("_discover_file: #{watched_file.path}: skipping " +
+              "because it matches exclude #{pattern}")
+          end
+          skip = true
+          watched_file.unwatch
+          break
+        end
+      end
+      skip
+    end
+
     def globbed_files(path)
       globbed_dirs = Dir.glob(path)
-      @logger.debug? && @logger.debug("_globbed_files: #{path}: glob is: #{globbed_dirs}")
+      @logger.debug? && @logger.debug("globbed_files: #{path}: glob is: #{globbed_dirs}")
       if globbed_dirs.empty? && File.file?(path)
         globbed_dirs = [path]
         @logger.debug? && @logger.debug("_globbed_files: #{path}: glob is: #{globbed_dirs} because glob did not work")

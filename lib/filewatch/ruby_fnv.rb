@@ -1,3 +1,4 @@
+# encoding: utf-8
 # fnv code extracted and modified from https://github.com/jakedouglas/fnv-ruby
 module FileWatch
   class Fnv

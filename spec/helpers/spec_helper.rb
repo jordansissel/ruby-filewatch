@@ -24,6 +24,11 @@ unless RSpec::Matchers.method_defined?(:receive_call_and_args)
 end
 
 module FileWatch
+
+  def self.on_windows?
+    RbConfig::CONFIG['host_os'] =~ /mswin|mingw|cygwin/
+  end
+
   def self.extract_pos(sincedb_record)
     k, v = SinceDb.parse_line(sincedb_record)
     v.position
@@ -46,6 +51,7 @@ module FileWatch
     # tracks 1 and 2
     songs1.slice(0, 138)
   end
+
   def self.songs2_short
     # tracks 1 and 2
     songs2.slice(0, 179)
@@ -78,11 +84,11 @@ SONGS
   end
 
   def self.sdb_rec_for_45k_file
-    "8864371933797704358,0,255 45003 #{Time.now.to_f + 3600.0} 1946650054937152164,37002,255\n"
+    "8864371933797704358,0,255 45003 #{Time.now.to_f} 1946650054937152164,37002,255\n"
   end
 
   def self.short_sdb_rec_for_songs1
-    "4319258025262393860,0,75 75 #{Time.now.to_f + 3600.0}\n"
+    "4319258025262393860,0,75 75 #{Time.now.to_f}\n"
   end
 
   def self.lines_for_45K_file
@@ -93,7 +99,7 @@ SONGS
     path = path_to_fixture("big1.txt")
     stat = File::Stat.new(path)
     inode = WatchedFile.inode(path, stat)
-    k = SincedbKey1.new(*inode)
+    k = InodeStruct.new(*inode)
     "#{k} #{stat.size}\n"
   end
 

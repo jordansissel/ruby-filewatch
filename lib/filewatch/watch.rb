@@ -1,3 +1,4 @@
+# encoding: utf-8
 require 'filewatch/boot_setup' unless defined?(FileWatch)
 
 module FileWatch

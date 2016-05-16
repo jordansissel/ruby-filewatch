@@ -1,16 +1,17 @@
+# encoding: utf-8
 require 'filewatch/boot_setup' unless defined?(FileWatch)
 
 module FileWatch
   class SincedbValue
     EXP_SECONDS = SDB_EXPIRES_DAYS * 24 * 3600
-    attr_reader :expires, :watched_file
+    attr_reader :last_seen_at, :watched_file
 
-    def initialize(position, expires = nil, second_fp = nil, watched_file = nil)
+    def initialize(position, last_seen_at = nil, second_fp = nil, watched_file = nil)
       @position = position # this is the value read from disk
-      @expires = expires
-      @second_fp = second_fp # from sincedb file read
+      @last_seen_at = last_seen_at
+      @second_fp = second_fp # from sincedb serializer, must be a struct or nil
       @watched_file = watched_file
-      upd_expiry if @expires.nil? || @expires.zero?
+      upd_expiry if @last_seen_at.nil? || @last_seen_at.zero?
     end
 
     def position
@@ -40,18 +41,18 @@ module FileWatch
       end
     end
 
-    def upd_watched_file(wf)
+    def set_watched_file(wf)
       upd_expiry
       @watched_file = wf
     end
 
     def upd_expiry
-      @expires = new_expires
+      @last_seen_at = Time.now.to_f
     end
 
     def to_s
-      "#{position} #{expires}".tap do |s|
-        s.concat(" #{second_fingerprint.join(',')}") if !second_fingerprint.nil?
+      "#{position} #{last_seen_at}".tap do |s|
+        s.concat(" #{second_fingerprint}") if !second_fingerprint.nil?
       end
     end
 
@@ -59,24 +60,18 @@ module FileWatch
       if @watched_file.nil? || @watched_file.last_fingerprint.nil?
         return @second_fp
       else
-        @watched_file.last_fingerprint.to_a
+        @watched_file.last_fingerprint.to_struct
       end
     end
 
-    def deallocate_watched_file
+    def unset_watched_file
       # cache the position and second_fingerprint this value last had
       return if @watched_file.nil?
       wf = @watched_file
       @watched_file = nil
       @position = wf.bytes_read
       return if wf.last_fingerprint.nil?
-      @second_fp = @watched_file.last_fingerprint.to_a
-    end
-
-    private
-
-    def new_expires
-      Time.now.to_f + EXP_SECONDS
+      @second_fp = wf.last_fingerprint.to_struct
     end
   end
 end

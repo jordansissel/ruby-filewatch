@@ -251,6 +251,42 @@ describe "FileWatch::Tail (observing)" do
     end
   end
 
+  context "when using the json serializer" do
+    let(:file_path) { FileWatch.path_to_fixture("twenty_six_lines.txt") }
+    let(:results) { [] }
+
+    subject { FileWatch::Tail.new_observing(opts) }
+
+    after :each do
+      FileUtils.rm_rf(directory)
+    end
+
+    it "writes the sincedb as json" do
+      subject.serializer = FileWatch::JsonSerializer
+      RSpec::Sequencing
+        .run("begin tailing") do
+          subject.tail(file_path)
+        end
+        .then_after(0.25, "quit") do
+          subject.quit
+        end
+      subject.subscribe(observer)
+      expect(observer.listeners[file_path].lines.count).to eq(26)
+      File.open(sincedb_path) {|file| results.concat(FileWatch::Json.load(file))}
+      expect(results.first).to match({"version"=>"1.0"})
+      record = results.last
+      expect(record["position"]).to eq(494)
+      expect(record["last_seen"]).to be_within(1.0).of(Time.now.to_f)
+      expect(record["path"]).to eq(file_path)
+      if FileWatch.on_windows?
+        expect(record["state"].keys).to eq(["vol", "idxlo", "idxhi"])
+      else
+        expect(record["state"].keys).to eq(["inode", "device_minor", "device_major"])
+      end
+      expect(record["fingerprints"].first).to eq({"hash"=>1180824822273425351, "offset"=>0, "size"=>255, "algo"=>"fnv"})
+    end
+  end
+
   context "when watching a directory" do
     let(:glob_path) { File.join(directory, "*.log") }
     let(:result_cache) { Hash.new }
@@ -506,9 +542,7 @@ describe "FileWatch::Tail (observing)" do
     end
   end
 
-
-
-  if RbConfig::CONFIG['host_os'] !~ /mswin|mingw|cygwin/
+  if !FileWatch.on_windows?
     describe "open or closed file handling" do
       let(:lsof_before_quit) { [] }
 

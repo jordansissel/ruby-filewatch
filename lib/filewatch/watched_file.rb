@@ -1,3 +1,4 @@
+# encoding: utf-8
 require 'filewatch/boot_setup' unless defined?(FileWatch)
 
 module FileWatch
@@ -34,10 +35,6 @@ module FileWatch
     attr_reader :sdb_key_v1, :storage_key, :last_stat_size
     attr_accessor :close_older, :ignore_older, :delimiter
 
-    def delimiter
-      @delimiter
-    end
-
     # this class represents a file that has been discovered
     def initialize(path, stat, initial)
       @path = path
@@ -57,16 +54,20 @@ module FileWatch
       set_accessed_at
     end
 
-    def init_vars(delim, ignore_o, close_o)
-      @delimiter = delim
-      @ignore_older = ignore_o
-      @close_older = close_o
+    def add_config(config)
+      @delimiter = config.delimiter
+      @close_older = config.close_older
+      @ignore_older = config.ignore_older
       self
     end
 
     def set_storage_keys
-      @sdb_key_v1 = SincedbKey1.new(*@inode.map(&:to_i))
-      @storage_key = SincedbKey2.new(*@fingerprints.first.to_a)
+      @sdb_key_v1 = InodeStruct.new(*@inode.map(&:to_i))
+      update_storage_key
+    end
+
+    def update_storage_key
+      @storage_key = FingerprintStruct.new(*first_fingerprint)
     end
 
     def first_fingerprint
@@ -87,6 +88,9 @@ module FileWatch
       return [] if unstorable?
       matched = first_fingerprint.match_any?(keys)
       return [] if !matched
+      # because match_any? will update the fingerprint and size
+      # but should it?
+      # update_storage_key
       [matched, storage_key]
     end
 

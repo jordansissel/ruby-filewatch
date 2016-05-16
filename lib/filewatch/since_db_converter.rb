@@ -1,3 +1,4 @@
+# encoding: utf-8
 require 'filewatch/boot_setup' unless defined?(FileWatch)
 
 module FileWatch
@@ -33,7 +34,7 @@ module FileWatch
         sdb_val = @sincedb.delete(key1)
         @logger.debug? && @logger.debug("SinceDbConverter convert: key1 - value: #{sdb_val}")
         wf.update_bytes_read(sdb_val.position)
-        sdb_val.upd_watched_file(wf)
+        sdb_val.set_watched_file(wf)
         @sincedb.set(key2, sdb_val)
         wf.ignore if wf.read_all?
         @converted_records += 1

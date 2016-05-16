@@ -1,8 +1,10 @@
+# encoding: utf-8
 require 'filewatch/boot_setup' unless defined?(FileWatch)
 
 module FileWatch
   class ObservingTail
     include TailBase
+
     public
 
     def subscribe(observer = NullObserver.new)
@@ -14,7 +16,7 @@ module FileWatch
         @logger.debug? && @logger.debug("subscribe block - #{event} for #{path}")
         case event
         when :unignore
-          if !@sincedb.member?(watched_file.storage_key) && !file_is_open && _open_file(watched_file, event)
+          if !@sincedb.member?(watched_file.storage_key) && !file_is_open && open_file(watched_file, event)
             listener.created
           end
         when :create, :create_initial
@@ -22,7 +24,7 @@ module FileWatch
             @logger.debug? && @logger.debug("#{event} for #{path}: file already open")
             next
           end
-          if _open_file(watched_file, event)
+          if open_file(watched_file, event)
             listener.created
             observe_read_file(watched_file, listener)
           end
@@ -32,7 +34,7 @@ module FileWatch
           else
             @logger.debug? && @logger.debug(":#{event} for #{path}, from empty file is not open, opening now")
             # it was grown from empty
-            if _open_file(watched_file, event)
+            if open_file(watched_file, event)
               observe_read_file(watched_file, listener)
             end
           end
@@ -44,7 +46,7 @@ module FileWatch
           else
             @logger.debug? && @logger.debug(":delete for #{path}, file already closed")
           end
-          @sincedb.deallocate(watched_file)
+          @sincedb.unset_watched_file(watched_file)
           listener.deleted
         when :timeout
           @logger.debug? && @logger.debug(":timeout for #{path}, closing file")
@@ -83,7 +85,7 @@ module FileWatch
         end
       end
 
-      @sincedb.write_periodically if changed
+      @sincedb.request_disk_flush if changed
     end # def _read_file
   end
 end # module FileWatch
