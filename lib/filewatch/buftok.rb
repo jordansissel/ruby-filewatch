@@ -30,6 +30,8 @@
 #  end
 
 module FileWatch; class BufferedTokenizer
+  class BufferFullError < StandardError; end
+                    
   # New BufferedTokenizers will operate on lines delimited by "\n" by default
   # or allow you to specify any delimiter token you so choose, which will then
   # be used by String#split to tokenize the input data
@@ -67,7 +69,7 @@ module FileWatch; class BufferedTokenizer
 
     # Check to see if the buffer has exceeded capacity, if we're imposing a limit
     if @size_limit
-      raise 'input buffer full' if @input_size + entities.first.size > @size_limit
+      raise BufferFullError, 'input buffer full' if @input_size + entities.first.size > @size_limit
       @input_size += entities.first.size
     end
     
