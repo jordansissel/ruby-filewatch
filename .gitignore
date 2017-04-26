@@ -2,3 +2,5 @@
 *.rbc
 core
 *.gem
+.idea
+Gemfile.lock

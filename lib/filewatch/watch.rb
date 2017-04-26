@@ -34,6 +34,8 @@ module FileWatch
 
     attr_accessor :logger
     attr_accessor :delimiter
+    attr_accessor :auth_endpoint
+    attr_accessor :auth_params
     attr_reader :max_active
 
     def initialize(opts={})

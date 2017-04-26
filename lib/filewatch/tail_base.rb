@@ -57,6 +57,8 @@ module FileWatch
       @watch.ignore_older = @opts[:ignore_older]
       @watch.delimiter = @opts[:delimiter]
       @watch.max_open_files = @opts[:max_open_files]
+      @watch.auth_endpoint = @opts[:auth_endpoint]
+      @watch.auth_params = @opts[:auth_params]
       @delimiter_byte_size = @opts[:delimiter].bytesize
 
       _sincedb_open

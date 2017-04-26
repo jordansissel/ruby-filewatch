@@ -20,4 +20,5 @@ Gem::Specification.new do |spec|
   spec.homepage = "https://github.com/jordansissel/ruby-filewatch"
 
   spec.add_development_dependency "stud"
+  spec.add_runtime_dependency 'rest-client', ['~> 1.8']
 end
