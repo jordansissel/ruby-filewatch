@@ -77,6 +77,7 @@ module FileWatch
     def discover_file(path)
       globbed_files(path).each do |file|
         next unless File.file?(file)
+        next if File.symlink?(file)
         new_discovery = false
         watched_file = file_lookup(file)
         if watched_file.nil?
