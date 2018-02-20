@@ -2,3 +2,14 @@
 *.rbc
 core
 *.gem
+*.class
+
+# build dirs
+build
+.gradle
+gradle
+
+# Intellij
+.idea
+*.iml
+jruby-filewatch-library-1.0.0.jar

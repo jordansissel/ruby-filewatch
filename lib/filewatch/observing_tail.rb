@@ -1,23 +1,11 @@
-require 'filewatch/tail_base'
+# encoding: utf-8
+require 'filewatch/boot_setup' unless defined?(FileWatch)
 
 module FileWatch
   class ObservingTail
     include TailBase
+
     public
-
-    class NullListener
-      def initialize(path) @path = path; end
-      def accept(line) end
-      def deleted() end
-      def created() end
-      def error() end
-      def eof() end
-      def timed_out() end
-    end
-
-    class NullObserver
-      def listener_for(path) NullListener.new(path); end
-    end
 
     def subscribe(observer = NullObserver.new)
       @watch.subscribe(@opts[:stat_interval],
@@ -25,25 +13,28 @@ module FileWatch
         path = watched_file.path
         file_is_open = watched_file.file_open?
         listener = observer.listener_for(path)
+        @logger.debug? && @logger.debug("subscribe block - #{event} for #{path}")
         case event
         when :unignore
-          listener.created
-          _add_to_sincedb(watched_file, event) unless @sincedb.member?(watched_file.inode)
+          if !@sincedb.member?(watched_file.storage_key) && !file_is_open && open_file(watched_file, event)
+            listener.created
+          end
         when :create, :create_initial
           if file_is_open
             @logger.debug? && @logger.debug("#{event} for #{path}: file already open")
             next
           end
-          if _open_file(watched_file, event)
+          if open_file(watched_file, event)
             listener.created
             observe_read_file(watched_file, listener)
           end
-        when :modify
+        when :grow, :shrink
           if file_is_open
             observe_read_file(watched_file, listener)
           else
-            @logger.debug? && @logger.debug(":modify for #{path}, file is not open, opening now")
-            if _open_file(watched_file, event)
+            @logger.debug? && @logger.debug(":#{event} for #{path}, from empty file is not open, opening now")
+            # it was grown from empty
+            if open_file(watched_file, event)
               observe_read_file(watched_file, listener)
             end
           end
@@ -55,6 +46,7 @@ module FileWatch
           else
             @logger.debug? && @logger.debug(":delete for #{path}, file already closed")
           end
+          @sincedb.unset_watched_file(watched_file)
           listener.deleted
         when :timeout
           @logger.debug? && @logger.debug(":timeout for #{path}, closing file")
@@ -65,23 +57,21 @@ module FileWatch
         end
       end # @watch.subscribe
       # when watch.subscribe ends - its because we got quit
-      _sincedb_write
+      @sincedb.write("shutting down")
     end # def subscribe
 
     private
+
     def observe_read_file(watched_file, listener)
       changed = false
-      loop do
+      @opts[:read_iterations].times do
         begin
-          data = watched_file.file_read(32768)
+          data = watched_file.file_read(FILE_READ_SIZE)
           changed = true
           watched_file.buffer_extract(data).each do |line|
             listener.accept(line)
-            @sincedb[watched_file.inode] += (line.bytesize + @delimiter_byte_size)
+            @sincedb.increment(watched_file.storage_key, line.bytesize + @delimiter_byte_size)
           end
-          # watched_file bytes_read tracks the sincedb entry
-          # see TODO in watch.rb
-          watched_file.update_bytes_read(@sincedb[watched_file.inode])
         rescue EOFError
           listener.eof
           break
@@ -89,21 +79,13 @@ module FileWatch
           listener.error
           break
         rescue => e
-          @logger.debug? && @logger.debug("observe_read_file: general error reading #{watched_file.path} - error: #{e.inspect}")
+          @logger.error("observe_read_file: general error reading #{watched_file.path} - error: #{e.inspect}")
           listener.error
           break
         end
       end
 
-      if changed
-        now = Time.now.to_i
-        delta = now - @sincedb_last_write
-        if delta >= @opts[:sincedb_write_interval]
-          @logger.debug? && @logger.debug("writing sincedb (delta since last write = #{delta})")
-          _sincedb_write
-          @sincedb_last_write = now
-        end
-      end
+      @sincedb.request_disk_flush if changed
     end # def _read_file
   end
 end # module FileWatch

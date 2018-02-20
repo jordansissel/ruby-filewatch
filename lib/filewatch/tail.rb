@@ -1,3 +1,6 @@
+# encoding: utf-8
+require 'filewatch/boot_setup'
+
 require "filewatch/yielding_tail"
 require "filewatch/observing_tail"
 require "forwardable"
@@ -6,7 +9,7 @@ module FileWatch
   class Tail
     extend Forwardable
 
-    def_delegators :@target, :tail, :logger=, :subscribe, :sincedb_record_uid, :sincedb_write, :quit, :close_file
+    def_delegators :@target, :tail, :logger=, :serializer=, :subscribe, :sincedb_record_uid, :sincedb_write, :quit, :close_file
 
     attr_writer :target
 

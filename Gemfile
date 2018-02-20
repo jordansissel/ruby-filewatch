@@ -5,3 +5,5 @@ group :test do
   gem 'stud', "~> 0.0.18"
   gem 'rspec-sequencing', '~> 0.1.0'
 end
+
+gemspec

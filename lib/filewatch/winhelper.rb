@@ -1,3 +1,4 @@
+# encoding: utf-8
 require "ffi"
 
 module Winhelper
@@ -29,7 +30,7 @@ module Winhelper
   #HANDLE WINAPI CreateFile(_In_ LPCTSTR lpFileName,_In_  DWORD dwDesiredAccess,_In_ DWORD dwShareMode,
   #						_In_opt_  LPSECURITY_ATTRIBUTES lpSecurityAttributes,_In_  DWORD dwCreationDisposition,
   #						_In_      DWORD dwFlagsAndAttributes,_In_opt_  HANDLE hTemplateFile);
-  attach_function :GetOpenFileHandle, :CreateFileA, [:pointer, :uint, :uint, :pointer, :uint, :uint, :pointer], :pointer	
+  attach_function :GetOpenFileHandle, :CreateFileA, [:pointer, :uint, :uint, :pointer, :uint, :uint, :pointer], :pointer
 
   #http://msdn.microsoft.com/en-us/library/windows/desktop/aa364952(v=vs.85).aspx
   #BOOL WINAPI GetFileInformationByHandle(_In_   HANDLE hFile,_Out_  LPBY_HANDLE_FILE_INFORMATION lpFileInformation);
@@ -45,7 +46,7 @@ module Winhelper
     CloseHandle(handle)
     if  success == 1
       #args = [
-      #		fileInfo[:fileAttributes], fileInfo[:volumeSerialNumber], fileInfo[:fileSizeHigh], fileInfo[:fileSizeLow], 
+      #		fileInfo[:fileAttributes], fileInfo[:volumeSerialNumber], fileInfo[:fileSizeHigh], fileInfo[:fileSizeLow],
       #		fileInfo[:numberOfLinks], fileInfo[:fileIndexHigh], fileInfo[:fileIndexLow]
       #	]
       #p "Information: %u %u %u %u %u %u %u " % args

@@ -1,4 +1,5 @@
-require 'filewatch/tail_base'
+# encoding: utf-8
+require 'filewatch/boot_setup' unless defined?(FileWatch)
 
 module FileWatch
   class YieldingTail
@@ -48,7 +49,7 @@ module FileWatch
         end
       end # @watch.subscribe
       # when watch.subscribe ends - its because we got quit
-      _sincedb_write
+      @sincedb.write("shutting down")
     end # def subscribe
 
     private
@@ -60,25 +61,17 @@ module FileWatch
           changed = true
           watched_file.buffer_extract(data).each do |line|
             yield(watched_file.path, line)
-            @sincedb[watched_file.inode] += (line.bytesize + @delimiter_byte_size)
+            @sincedb.increment(watched_file, line.bytesize + @delimiter_byte_size)
           end
           # watched_file bytes_read tracks the sincedb entry
           # see TODO in watch.rb
-          watched_file.update_bytes_read(@sincedb[watched_file.inode])
+          watched_file.update_bytes_read(@sincedb.last_read(watched_file))
         rescue Errno::EWOULDBLOCK, Errno::EINTR, EOFError
           break
         end
       end
 
-      if changed
-        now = Time.now.to_i
-        delta = now - @sincedb_last_write
-        if delta >= @opts[:sincedb_write_interval]
-          @logger.debug? && @logger.debug("writing sincedb (delta since last write = #{delta})")
-          _sincedb_write
-          @sincedb_last_write = now
-        end
-      end
+      @sincedb.request_disk_flush if changed
     end
   end # module YieldingTail
 end # module FileWatch
