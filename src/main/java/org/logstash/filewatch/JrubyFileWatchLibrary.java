@@ -1,4 +1,4 @@
-package com.logstash.filewatch;
+package org.logstash.filewatch;
 
 /**
  * Created with IntelliJ IDEA. User: efrey Date: 6/11/13 Time: 11:00 AM To
@@ -12,15 +12,21 @@ package com.logstash.filewatch;
  * fnv code extracted and modified from https://github.com/jakedouglas/fnv-java
  */
 
-import org.jruby.*;
+import org.jruby.Ruby;
+import org.jruby.RubyBignum;
+import org.jruby.RubyClass;
+import org.jruby.RubyFixnum;
+import org.jruby.RubyIO;
+import org.jruby.RubyInteger;
+import org.jruby.RubyModule;
+import org.jruby.RubyObject;
+import org.jruby.RubyString;
 import org.jruby.anno.JRubyClass;
 import org.jruby.anno.JRubyMethod;
 import org.jruby.runtime.Arity;
-import org.jruby.runtime.ObjectAllocator;
 import org.jruby.runtime.ThreadContext;
 import org.jruby.runtime.builtin.IRubyObject;
 import org.jruby.runtime.load.Library;
-import org.jruby.util.io.InvalidValueException;
 
 import java.io.IOException;
 import java.math.BigInteger;
@@ -31,6 +37,7 @@ import java.nio.file.OpenOption;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 
+@SuppressWarnings("ClassUnconnectedToPackage")
 public class JrubyFileWatchLibrary implements Library {
 
     private static final BigInteger INIT32 = new BigInteger("811c9dc5", 16);
@@ -41,66 +48,56 @@ public class JrubyFileWatchLibrary implements Library {
     private static final BigInteger MOD64 = new BigInteger("2").pow(64);
 
     @Override
-    public void load(Ruby runtime, boolean wrap) throws IOException {
-        RubyModule module = runtime.defineModule("FileWatch");
-        RubyClass clazz;
+    public void load(final Ruby runtime, final boolean wrap) {
+        final RubyModule module = runtime.defineModule("FileWatch");
 
-        clazz = runtime.defineClassUnder("FileExt", runtime.getObject(), new ObjectAllocator() {
-            @Override
-            public IRubyObject allocate(Ruby runtime, RubyClass rubyClass) {
-                return new RubyFileExt(runtime, rubyClass);
-            }
-        }, module);
-        clazz.defineAnnotatedMethods(RubyFileExt.class);
+        RubyClass clazz = runtime.defineClassUnder("FileExt", runtime.getObject(), (runtime12, rubyClass) -> new RubyFileExt(runtime12, rubyClass), module);
+        clazz.defineAnnotatedMethods(JrubyFileWatchLibrary.RubyFileExt.class);
 
-        clazz = runtime.defineClassUnder("Fnv", runtime.getObject(), new ObjectAllocator() {
-            @Override
-            public IRubyObject allocate(Ruby runtime, RubyClass rubyClass) {
-                return new Fnv(runtime, rubyClass);
-            }
-        }, module);
-        clazz.defineAnnotatedMethods(Fnv.class);
+        clazz = runtime.defineClassUnder("Fnv", runtime.getObject(), (runtime1, rubyClass) -> new JrubyFileWatchLibrary.Fnv(runtime1, rubyClass), module);
+        clazz.defineAnnotatedMethods(JrubyFileWatchLibrary.Fnv.class);
 
     }
 
     @JRubyClass(name = "FileExt", parent = "Object")
     public static class RubyFileExt extends RubyObject {
 
-        public RubyFileExt(Ruby runtime, RubyClass metaClass) {
+        public RubyFileExt(final Ruby runtime, final RubyClass metaClass) {
             super(runtime, metaClass);
         }
 
-        public RubyFileExt(RubyClass metaClass) {
+        public RubyFileExt(final RubyClass metaClass) {
             super(metaClass);
         }
 
         @JRubyMethod(name = "open", required = 1, meta = true)
-        public static RubyIO open(ThreadContext context, IRubyObject self, RubyString path) throws IOException, InvalidValueException {
-            Path p = FileSystems.getDefault().getPath(path.asJavaString());
-            OpenOption[] options = new OpenOption[1];
+        public static RubyIO open(final ThreadContext context, final IRubyObject self, final RubyString path) throws IOException {
+            final Path javapath = FileSystems.getDefault().getPath(path.asJavaString());
+            final OpenOption[] options = new OpenOption[1];
             options[0] = StandardOpenOption.READ;
-            Channel channel = FileChannel.open(p, options);
+            final Channel channel = FileChannel.open(javapath, options);
             return new RubyIO(Ruby.getGlobalRuntime(), channel);
         }
     }
 
+    @SuppressWarnings({"NewMethodNamingConvention", "ChainOfInstanceofChecks"})
     @JRubyClass(name = "Fnv", parent = "Object")
     public static class Fnv extends RubyObject {
 
-        private byte[] bytes;
-        private long size;
+        private byte[] bytes = null;
+        private long size = 0L;
         private boolean open = false;
 
-        public Fnv(Ruby runtime, RubyClass metaClass) {
+        public Fnv(final Ruby runtime, final RubyClass metaClass) {
             super(runtime, metaClass);
         }
 
-        public Fnv(RubyClass metaClass) {
+        public Fnv(final RubyClass metaClass) {
             super(metaClass);
         }
 
         @JRubyMethod(name = "coerce_bignum", meta = true, required = 1)
-        public static IRubyObject coerceBignum(ThreadContext ctx, IRubyObject recv, IRubyObject i) {
+        public static IRubyObject coerceBignum(final ThreadContext ctx, final IRubyObject recv, final IRubyObject i) {
             if (i instanceof RubyBignum) {
                 return i;
             }
@@ -112,51 +109,57 @@ public class JrubyFileWatchLibrary implements Library {
 
         // def initialize(data)
         @JRubyMethod(name = "initialize", required = 1)
-        public IRubyObject ruby_initialize(ThreadContext ctx, RubyString data) {
+        public IRubyObject rubyInitialize(final ThreadContext ctx, final RubyString data) {
             bytes = data.getBytes();
-            size = bytes.length;
+            size = (long) bytes.length;
             open = true;
             return ctx.nil;
         }
 
         @JRubyMethod(name = "close")
-        public IRubyObject close(ThreadContext ctx) {
+        public IRubyObject close(final ThreadContext ctx) {
             open = false;
             bytes = null;
             return ctx.nil;
         }
 
         @JRubyMethod(name = "open?")
-        public IRubyObject open_p(ThreadContext ctx) {
-            if(open) return ctx.runtime.getTrue();
+        public IRubyObject open_p(final ThreadContext ctx) {
+            if(open) {
+                return ctx.runtime.getTrue();
+            }
             return ctx.runtime.getFalse();
         }
 
         @JRubyMethod(name = "closed?")
-        public IRubyObject closed_p(ThreadContext ctx) {
-            if(open) return ctx.runtime.getFalse();
+        public IRubyObject closed_p(final ThreadContext ctx) {
+            if(open) {
+                return ctx.runtime.getFalse();
+            }
             return ctx.runtime.getTrue();
         }
 
         @JRubyMethod(name = "fnv1a32", optional = 1)
-        public IRubyObject fnv1a_32(ThreadContext ctx, IRubyObject[] args) {
+        public IRubyObject fnv1a_32(final ThreadContext ctx, IRubyObject[] args) {
+            IRubyObject[] args1 = args;
             if(open) {
-                args = Arity.scanArgs(ctx.runtime, args, 0, 1);
-                return RubyBignum.newBignum(ctx.runtime, common_fnv(args[0], INIT32, PRIME32, MOD32));
+                args1 = Arity.scanArgs(ctx.runtime, args1, 0, 1);
+                return RubyBignum.newBignum(ctx.runtime, common_fnv(args1[0], INIT32, PRIME32, MOD32));
             }
             throw ctx.runtime.newRaiseException(ctx.runtime.getClass("StandardError"), "Fnv instance is closed!");
         }
 
         @JRubyMethod(name = "fnv1a64", optional = 1)
-        public IRubyObject fnv1a_64(ThreadContext ctx, IRubyObject[] args) {
+        public IRubyObject fnv1a_64(final ThreadContext ctx, IRubyObject[] args) {
+            IRubyObject[] args1 = args;
             if(open) {
-                args = Arity.scanArgs(ctx.runtime, args, 0, 1);
-                return RubyBignum.newBignum(ctx.runtime, common_fnv(args[0], INIT64, PRIME64, MOD64));
+                args1 = Arity.scanArgs(ctx.runtime, args1, 0, 1);
+                return RubyBignum.newBignum(ctx.runtime, common_fnv(args1[0], INIT64, PRIME64, MOD64));
             }
             throw ctx.runtime.newRaiseException(ctx.runtime.getClass("StandardError"), "Fnv instance is closed!");
         }
 
-        private long convertLong(IRubyObject obj) {
+        private long convertLong(final IRubyObject obj) {
             if(obj instanceof RubyInteger) {
                 return ((RubyInteger)obj).getLongValue();
             }
@@ -167,20 +170,20 @@ public class JrubyFileWatchLibrary implements Library {
             return size;
         }
 
-        private BigInteger common_fnv(IRubyObject len, BigInteger hash, BigInteger prime, BigInteger mod) {
-            BigInteger h = hash;
-            long l = convertLong(len);
+        private BigInteger common_fnv(final IRubyObject len, final BigInteger hash, final BigInteger prime, final BigInteger mod) {
+            long converted = convertLong(len);
 
-            if (l > size) {
-                l = size;
+            if (converted > size) {
+                converted = size;
             }
 
-            for (int i = 0; i < l; i++) {
-                h = h.xor(BigInteger.valueOf((int) bytes[i] & 0xff));
-                h = h.multiply(prime).mod(mod);
+            BigInteger tempHash = hash;
+            for (int idx = 0; (long) idx < converted; idx++) {
+                tempHash = tempHash.xor(BigInteger.valueOf((long) ((int) bytes[idx] & 0xff)));
+                tempHash = tempHash.multiply(prime).mod(mod);
             }
 
-            return h;
+            return tempHash;
         }
     }
 

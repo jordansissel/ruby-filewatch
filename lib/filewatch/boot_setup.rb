@@ -32,7 +32,7 @@ module FileWatch
 
   if defined?(JRUBY_VERSION)
     require "java"
-    require "jars/jruby-filewatch-library.jar"
+    require "jars/jruby-filewatch-library-1.0.0.jar"
     require "jruby_file_watch"
   else
     require "filewatch/ruby_fnv"
